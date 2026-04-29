@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "modis-snow-phenology"
+version = "0.1.0"
+description = "Global MODIS snow phenology dataset processing"
+authors = [{ name = "Eric Gagliano", email = "egagli@uw.edu" }]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []  # managed by pixi

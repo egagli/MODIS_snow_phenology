@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Pixi
+.pixi/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment / secrets
+.env
+sas_token.txt
+*.pem
+
+# OS
+.DS_Store
+
+# Logs
+logs/
+*.log

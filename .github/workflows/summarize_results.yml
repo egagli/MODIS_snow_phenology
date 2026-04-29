@@ -1,0 +1,73 @@
+name: Summarize Results
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'GitHub Actions run ID to query for failures (leave blank to skip failure detection)'
+        required: false
+        default: ''
+        type: string
+
+env:
+  AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+  AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.8.3
+        with:
+          pixi-version: v0.39.0
+          environments: ci
+
+      - name: Install package
+        run: pixi run -e ci pip install -e .
+
+      - name: Update tile processing status
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID="${{ inputs.run_id }}"
+          if [ -n "$RUN_ID" ]; then
+            pixi run -e ci python processing/scripts/summarize_processing.py \
+              --run-id "$RUN_ID" \
+              --github-token "${{ secrets.GITHUB_TOKEN }}" \
+              --repo "${{ github.repository }}"
+          else
+            # Without a run ID, only update from Icechunk history (no failure detection)
+            pixi run -e ci python processing/scripts/summarize_processing.py
+          fi
+
+      - name: Commit updated GeoJSON
+        run: |
+          if [[ -n "$(git status --porcelain processing/tile_data/tile_processing_status.geojson)" ]]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action (summarize-results)"
+            git add processing/tile_data/tile_processing_status.geojson
+            git commit -m "Update tile processing status"
+
+            for i in {1..3}; do
+              if git pull --rebase origin main && git push; then
+                echo "✅ Pushed updated tile status"
+                break
+              fi
+              echo "⚠️  Push attempt $i/3 failed, retrying in 5s..."
+              sleep 5
+              if [ $i -eq 3 ]; then
+                echo "❌ Failed to push after 3 attempts"
+                exit 1
+              fi
+            done
+          else
+            echo "✅ No changes to tile status GeoJSON"
+          fi

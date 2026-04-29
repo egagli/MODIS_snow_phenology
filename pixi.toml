@@ -1,0 +1,39 @@
+[project]
+name = "modis-snow-phenology"
+version = "0.1.0"
+description = "Global MODIS snow phenology dataset (SAD, SDD, max consecutive snow days) using Icechunk + Zarr v3"
+authors = ["Eric Gagliano <egagli@uw.edu>"]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64"]
+
+[dependencies]
+python = ">=3.11"
+xarray = ">=2025.1"
+zarr = ">=3.0"
+icechunk = ">=0.2"
+numpy = ">=2.0"
+numba = "*"
+dask = "*"
+pandas = "*"
+geopandas = "*"
+pystac-client = "*"
+planetary-computer = "*"
+odc-stac = ">=0.4"
+adlfs = "*"
+rioxarray = "*"
+tqdm = "*"
+requests = "*"
+pip = "*"
+
+[feature.dev.dependencies]
+jupyterlab = "*"
+matplotlib = "*"
+ipywidgets = "*"
+contextily = "*"
+
+[environments]
+default = { features = ["dev"] }
+ci = { solve-group = "default" }
+
+[tasks]
+notebook = "jupyter lab notebooks/"

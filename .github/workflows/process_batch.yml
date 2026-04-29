@@ -1,0 +1,145 @@
+name: Process Batch
+
+on:
+  workflow_dispatch:
+    inputs:
+      which_tiles:
+        description: 'Which tiles to process'
+        required: false
+        default: 'unprocessed_and_failed'
+        type: choice
+        options:
+          - unprocessed
+          - failed
+          - unprocessed_and_failed
+          - all
+
+env:
+  AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+  AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  generate-tile-matrix:
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.get-tiles.outputs.matrix }}
+      tile-count: ${{ steps.get-tiles.outputs.count }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.8.3
+        with:
+          pixi-version: v0.39.0
+          environments: ci
+
+      - name: Install package
+        run: pixi run -e ci pip install -e .
+
+      - name: Get tiles for batch processing
+        id: get-tiles
+        run: |
+          COUNT=$(pixi run -e ci python processing/scripts/get_tiles_for_batch.py \
+            --which-tiles ${{ inputs.which_tiles }} \
+            --output count)
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+          if [ "$COUNT" -gt 256 ]; then
+            echo "⚠️  WARNING: $COUNT tiles requested but GitHub Actions matrix limit is 256."
+            echo "Consider processing in multiple runs using --which-tiles options."
+            exit 1
+          fi
+
+          MATRIX=$(pixi run -e ci python processing/scripts/get_tiles_for_batch.py \
+            --which-tiles ${{ inputs.which_tiles }} \
+            --output json)
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
+          echo "✅ Processing $COUNT tiles"
+
+  process-tiles:
+    needs: generate-tile-matrix
+    if: fromJson(needs.generate-tile-matrix.outputs.tile-count) > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        tile: ${{ fromJson(needs.generate-tile-matrix.outputs.matrix) }}
+
+    # Explicit job name enables summarize_processing.py to match jobs to tiles via GH API
+    name: process-tile-h${{ format('{0:02d}', matrix.tile.h) }}-v${{ format('{0:02d}', matrix.tile.v) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.8.3
+        with:
+          pixi-version: v0.39.0
+          environments: ci
+
+      - name: Install package
+        run: pixi run -e ci pip install -e .
+
+      - name: Process tile
+        run: |
+          pixi run -e ci python processing/scripts/process_single_tile.py \
+            --h ${{ matrix.tile.h }} \
+            --v ${{ matrix.tile.v }}
+
+  summarize-results:
+    needs: process-tiles
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.8.3
+        with:
+          pixi-version: v0.39.0
+          environments: ci
+
+      - name: Install package
+        run: pixi run -e ci pip install -e .
+
+      - name: Update tile processing status
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+          AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
+        run: |
+          pixi run -e ci python processing/scripts/summarize_processing.py \
+            --run-id ${{ github.run_id }} \
+            --github-token "${{ secrets.GITHUB_TOKEN }}" \
+            --repo "${{ github.repository }}"
+
+      - name: Commit updated GeoJSON
+        run: |
+          if [[ -n "$(git status --porcelain processing/tile_data/tile_processing_status.geojson)" ]]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action (summarize-results)"
+            git add processing/tile_data/tile_processing_status.geojson
+            git commit -m "Update tile processing status (run ${{ github.run_id }})"
+
+            for i in {1..3}; do
+              if git pull --rebase origin main && git push; then
+                echo "✅ Pushed updated tile status"
+                break
+              fi
+              echo "⚠️  Push attempt $i/3 failed, retrying in 5s..."
+              sleep 5
+              if [ $i -eq 3 ]; then
+                echo "❌ Failed to push after 3 attempts"
+                exit 1
+              fi
+            done
+          else
+            echo "✅ No changes to tile status GeoJSON"
+          fi
