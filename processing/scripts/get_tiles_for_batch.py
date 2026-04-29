@@ -4,6 +4,7 @@ Get tiles from tile_processing_status.geojson for GitHub Actions matrix processi
 Usage:
     python get_tiles_for_batch.py --which-tiles unprocessed --output json
     python get_tiles_for_batch.py --which-tiles unprocessed_and_failed --output count
+    python get_tiles_for_batch.py --config-file config/config_v1.txt --which-tiles unprocessed --output json
 """
 
 import argparse
@@ -24,6 +25,7 @@ VALID_STATUSES = {
 
 def parse_args():
     p = argparse.ArgumentParser()
+    p.add_argument("--config-file", default="config/config_v1.txt", help="Path to config file")
     p.add_argument(
         "--which-tiles",
         default="unprocessed_and_failed",
@@ -41,7 +43,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    config = Config()
+    config = Config(args.config_file)
 
     statuses = VALID_STATUSES[args.which_tiles]
     gdf = config.get_tiles_by_status(statuses)
@@ -50,7 +52,6 @@ def main():
         print(len(gdf))
         return
 
-    # JSON matrix for GitHub Actions: list of {"h": int, "v": int}
     tiles = [{"h": int(row.h), "v": int(row.v)} for _, row in gdf.iterrows()]
     print(json.dumps(tiles))
 

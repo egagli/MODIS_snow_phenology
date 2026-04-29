@@ -3,6 +3,7 @@ Process a single MODIS tile and write results to the Icechunk store.
 
 Usage:
     python process_single_tile.py --h 10 --v 4
+    python process_single_tile.py --h 10 --v 4 --config-file config/config_v1.txt
 
 On success: commits data to Icechunk with message "h10v04: processed"
 On failure: exits nonzero; no Icechunk commit (store remains clean)
@@ -10,18 +11,19 @@ On failure: exits nonzero; no Icechunk commit (store remains clean)
 
 import argparse
 import logging
+import os
 import sys
 import traceback
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 
+import icechunk
 import numpy as np
 import pandas as pd
 import xarray as xr
-import icechunk
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from modis_snow_phenology import masking
+from modis_snow_phenology import processing
 from modis_snow_phenology.config import Config
 
 logging.basicConfig(
@@ -39,17 +41,17 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--h", type=int, required=True, dest="h", help="MODIS horizontal tile index (0-35)")
     p.add_argument("--v", type=int, required=True, dest="v", help="MODIS vertical tile index (0-17)")
+    p.add_argument("--config-file", default="config/config_v1.txt", help="Path to config file")
     return p.parse_args()
 
 
 def fetch_and_binarize(h: int, v: int, config: Config) -> xr.DataArray:
     """Fetch MOD10A2 for a tile across all water years and cloud-fill."""
-    # Fetch from 2013 so we have Oct-Dec of WY_start - 1 for water year alignment
     start_date = f"{config.wy_start - 2}-10-01"
     end_date = f"{config.wy_end}-09-30"
 
     log.info(f"Fetching MOD10A2 h{h:02d}v{v:02d} ({start_date} to {end_date})")
-    raw = masking.get_modis_MOD10A2_max_snow_extent(
+    raw = processing.get_modis_MOD10A2_max_snow_extent(
         vertical_tile=v,
         horizontal_tile=h,
         start_date=start_date,
@@ -59,7 +61,7 @@ def fetch_and_binarize(h: int, v: int, config: Config) -> xr.DataArray:
     log.info(f"Raw data shape: {dict(zip(raw.dims, raw.shape))}")
 
     log.info("Applying cloud filling...")
-    binary = masking.binarize_with_cloud_filling(raw)
+    binary = processing.binarize_with_cloud_filling(raw)
     return binary
 
 
@@ -95,7 +97,7 @@ def compute_snow_metrics(binary: xr.DataArray, config: Config, hemisphere: str) 
     binary = assign_water_year_coords(binary, hemisphere)
 
     log.info("Aligning water year starts...")
-    binary_aligned = masking.align_wy_start(binary, hemisphere=hemisphere)
+    binary_aligned = processing.align_wy_start(binary, hemisphere=hemisphere)
 
     target_wys = np.arange(config.wy_start, config.wy_end + 1)
     results = []
@@ -107,7 +109,7 @@ def compute_snow_metrics(binary: xr.DataArray, config: Config, hemisphere: str) 
             continue
 
         log.info(f"Computing snow metrics for WY{wy} ({len(wy_da.time)} obs)")
-        metrics = masking.get_max_consec_snow_days_SAD_SDD_one_WY(wy_da)
+        metrics = processing.get_max_consec_snow_days_SAD_SDD_one_WY(wy_da)
         metrics = metrics.expand_dims(water_year=[wy])
         results.append(metrics)
 
@@ -116,7 +118,6 @@ def compute_snow_metrics(binary: xr.DataArray, config: Config, hemisphere: str) 
 
     ds = xr.concat(results, dim="water_year")
 
-    # Pad missing water years with fill value
     fill = np.iinfo(np.int16).min
     ds = ds.reindex(water_year=target_wys, fill_value=fill)
 
@@ -130,20 +131,47 @@ def reindex_to_global_grid(ds_tile: xr.Dataset, ds_store: xr.Dataset) -> xr.Data
         y=ds_store.y,
         x=ds_store.x,
         method="nearest",
-        tolerance=1.0,  # 1 meter tolerance for floating point alignment
+        tolerance=1.0,
     )
 
 
-def write_to_icechunk(ds_tile: xr.Dataset, config: Config, tile_id: str):
-    """Write tile data to Icechunk store and commit."""
-    log.info(f"Opening Icechunk repo for writing...")
-    repo = config.open_repo()
-    session = repo.writable_session("main")
-    store = session.store()
+def main():
+    args = parse_args()
+    h, v = args.h, args.v
+    config = Config(args.config_file)
+    tile_id = Config.tile_id(h, v)
+    hemisphere = Config.hemisphere_for_v(v)
 
-    log.info(f"Writing tile data to store (region='auto')...")
+    log.info(f"Processing tile {tile_id} ({hemisphere} hemisphere) — config: {config.config_name}")
+    start = datetime.now(timezone.utc)
+
+    # Open Icechunk store — credentials from environment
+    storage = icechunk.Storage.new_azure_blob(
+        container=config.azure_container,
+        prefix=config.icechunk_prefix,
+        account_name=os.environ["AZURE_STORAGE_ACCOUNT"],
+        sas_token=os.environ["AZURE_STORAGE_SAS_TOKEN"],
+    )
+
+    # Read global coordinate grid for reindexing
+    log.info("Reading global store coordinates (read-only)...")
+    repo_ro = icechunk.Repository.open(storage)
+    session_ro = repo_ro.readonly_session("main")
+    ds_store = xr.open_zarr(session_ro.store(), zarr_format=3, consolidated=False)
+
+    # Full processing pipeline
+    binary = fetch_and_binarize(h, v, config)
+    ds_tile = compute_snow_metrics(binary, config, hemisphere)
+    ds_tile = reindex_to_global_grid(ds_tile, ds_store)
+
+    # Write to Icechunk — open a fresh writable session
+    log.info("Opening writable Icechunk session...")
+    repo = icechunk.Repository.open(storage)
+    session = repo.writable_session("main")
+
+    log.info("Writing tile data (region='auto')...")
     ds_tile.drop_vars("spatial_ref", errors="ignore").to_zarr(
-        store,
+        session.store(),
         region="auto",
         mode="r+",
         zarr_format=3,
@@ -154,32 +182,7 @@ def write_to_icechunk(ds_tile: xr.Dataset, config: Config, tile_id: str):
         commit_message,
         conflict_solver=icechunk.ConflictDetector(),
     )
-    log.info(f"Committed: '{commit_message}' -> snapshot {snapshot_id}")
-
-
-def main():
-    args = parse_args()
-    h, v = args.h, args.v
-    tile_id = Config.tile_id(h, v)
-    hemisphere = Config.hemisphere_for_v(v)
-
-    log.info(f"Processing tile {tile_id} ({hemisphere} hemisphere)")
-    start = datetime.now(timezone.utc)
-
-    config = Config()
-
-    # Fetch reference store coordinates (read-only) for reindexing
-    log.info("Opening Icechunk store (read-only) to get global coordinates...")
-    repo = config.open_repo()
-    session_ro = repo.readonly_session("main")
-    ds_store = xr.open_zarr(session_ro.store(), zarr_format=3, consolidated=False)
-
-    # Full pipeline
-    binary = fetch_and_binarize(h, v, config)
-    ds_tile = compute_snow_metrics(binary, config, hemisphere)
-    ds_tile = reindex_to_global_grid(ds_tile, ds_store)
-
-    write_to_icechunk(ds_tile, config, tile_id)
+    log.info(f"Committed: '{commit_message}' -> {snapshot_id}")
 
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     log.info(f"Done. Total time: {elapsed:.1f}s")

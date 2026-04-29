@@ -1,0 +1,12 @@
+[METADATA]
+config_name = config_v1
+version = v1
+
+[VALUES]
+azure_container = snowmelt
+icechunk_prefix = snow-phenology/global_modis_snow_phenology_v1
+tile_status_path = processing/tile_data/tile_processing_status.geojson
+wy_start = 2015
+wy_end = 2024
+shard_shape = 1, 2400, 2400
+inner_chunk_shape = 1, 600, 600

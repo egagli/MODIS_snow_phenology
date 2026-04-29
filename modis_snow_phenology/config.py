@@ -1,51 +1,38 @@
 """
-Configuration for the MODIS snow phenology processing pipeline.
+Configuration loader for the MODIS snow phenology processing pipeline.
+
+Reads an INI-style config file (e.g. config/config_v1.txt) and exposes
+values as attributes. Icechunk setup is left to the calling scripts.
 """
 
-import os
+import configparser
 from pathlib import Path
 
 import geopandas as gpd
-import icechunk
-
 
 REPO_ROOT = Path(__file__).parent.parent
 
-AZURE_CONTAINER = "snowmelt"
-ICECHUNK_PREFIX = "snow-phenology/global_modis_snow_phenology_v1"
-
-TILE_STATUS_PATH = REPO_ROOT / "processing" / "tile_data" / "tile_processing_status.geojson"
-
-# MODIS water years
-WY_START = 2015
-WY_END = 2024
-
-# Southern hemisphere tiles (v >= 9 are mostly SH, but v index used to detect hemisphere)
-# Tiles with v >= 9 are in the southern hemisphere
-SH_V_THRESHOLD = 9
-
 
 class Config:
-    def __init__(self):
-        self.account_name = os.environ.get("AZURE_STORAGE_ACCOUNT", "uwcryo")
-        self.sas_token = os.environ.get("AZURE_STORAGE_SAS_TOKEN", "")
-        self.tile_status_path = TILE_STATUS_PATH
-        self.wy_start = WY_START
-        self.wy_end = WY_END
+    def __init__(self, config_file: str = "config/config_v1.txt"):
+        self._path = REPO_ROOT / config_file
+        parser = configparser.ConfigParser()
+        parser.read(self._path)
+        v = parser["VALUES"]
 
-    def get_storage(self) -> icechunk.Storage:
-        return icechunk.Storage.new_azure_blob(
-            container=AZURE_CONTAINER,
-            prefix=ICECHUNK_PREFIX,
-            account_name=self.account_name,
-            sas_token=self.sas_token,
-        )
+        self.config_name: str = parser["METADATA"]["config_name"]
+        self.version: str = parser["METADATA"]["version"]
 
-    def open_repo(self) -> icechunk.Repository:
-        return icechunk.Repository.open(self.get_storage())
+        self.azure_container: str = v["azure_container"]
+        self.icechunk_prefix: str = v["icechunk_prefix"]
 
-    def create_repo(self) -> icechunk.Repository:
-        return icechunk.Repository.create(self.get_storage())
+        self.tile_status_path: Path = REPO_ROOT / v["tile_status_path"]
+
+        self.wy_start: int = int(v["wy_start"])
+        self.wy_end: int = int(v["wy_end"])
+
+        self.shard_shape: tuple[int, ...] = tuple(int(x) for x in v["shard_shape"].split(","))
+        self.inner_chunk_shape: tuple[int, ...] = tuple(int(x) for x in v["inner_chunk_shape"].split(","))
 
     def load_tile_status(self) -> gpd.GeoDataFrame:
         return gpd.read_file(self.tile_status_path)
@@ -64,4 +51,5 @@ class Config:
 
     @staticmethod
     def hemisphere_for_v(v: int) -> str:
-        return "southern" if v >= SH_V_THRESHOLD else "northern"
+        """Tiles with v >= 9 are in the southern hemisphere."""
+        return "southern" if v >= 9 else "northern"

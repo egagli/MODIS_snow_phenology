@@ -9,18 +9,20 @@ Usage (called by GitHub Actions summarize-results job):
         --github-token $GITHUB_TOKEN \
         --repo egagli/MODIS_snow_phenology
 
-Usage (standalone, without GH Actions context):
-    python summarize_processing.py  # skips GH API step
+Usage (standalone, without GH Actions context — only updates from Icechunk history):
+    python summarize_processing.py
 """
 
 import argparse
 import logging
+import os
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import geopandas as gpd
+import icechunk
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -39,6 +41,7 @@ JOB_NAME_PATTERN = re.compile(r"process-tile-h(\d+)-v(\d+)")
 
 def parse_args():
     p = argparse.ArgumentParser()
+    p.add_argument("--config-file", default="config/config_v1.txt", help="Path to config file")
     p.add_argument("--run-id", default=None, help="GitHub Actions run ID")
     p.add_argument("--github-token", default=None, help="GitHub token for API access")
     p.add_argument("--repo", default=None, help="GitHub repo (owner/repo)")
@@ -51,7 +54,13 @@ def get_processed_tiles_from_icechunk(config: Config) -> dict[str, str]:
     for all tiles with a 'processed' commit.
     """
     log.info("Querying Icechunk commit history...")
-    repo = config.open_repo()
+    storage = icechunk.Storage.new_azure_blob(
+        container=config.azure_container,
+        prefix=config.icechunk_prefix,
+        account_name=os.environ["AZURE_STORAGE_ACCOUNT"],
+        sas_token=os.environ["AZURE_STORAGE_SAS_TOKEN"],
+    )
+    repo = icechunk.Repository.open(storage)
     session = repo.readonly_session("main")
 
     processed = {}
@@ -59,9 +68,7 @@ def get_processed_tiles_from_icechunk(config: Config) -> dict[str, str]:
         m = PROCESSED_PATTERN.match(snap.message)
         if m:
             tile_id = f"h{m[1]}v{m[2]}"
-            # Keep most recent commit per tile (ancestry is newest-first)
-            if tile_id not in processed:
-                # Use snapshot timestamp if available, otherwise current time
+            if tile_id not in processed:  # ancestry is newest-first; keep most recent
                 ts = getattr(snap, "committed_at", None)
                 if ts is None:
                     ts = datetime.now(timezone.utc).isoformat()
@@ -100,8 +107,7 @@ def get_failed_jobs_from_github(run_id: str, token: str, repo: str) -> dict[str,
             timeout=30,
         )
         resp.raise_for_status()
-        data = resp.json()
-        jobs = data.get("jobs", [])
+        jobs = resp.json().get("jobs", [])
         if not jobs:
             break
 
@@ -135,10 +141,9 @@ def _fetch_job_log_excerpt(job_id: int, headers: dict, base_url: str) -> str:
         )
         if resp.status_code == 200:
             lines = [l.strip() for l in resp.text.splitlines() if l.strip()]
-            # Return last non-trivial line (skipping timestamps and blank lines)
             for line in reversed(lines):
-                if len(line) > 10 and not line.startswith("20"):  # skip timestamp lines
-                    return line[-300:]  # cap at 300 chars
+                if len(line) > 10 and not line.startswith("20"):
+                    return line[-300:]
     except Exception as e:
         log.warning(f"Could not fetch logs for job {job_id}: {e}")
     return "Error details unavailable (see GH Actions logs)"
@@ -149,42 +154,34 @@ def update_geojson(
     processed: dict[str, str],
     failed: dict[str, str],
 ) -> gpd.GeoDataFrame:
-    """Update tile_processing_status.geojson with new processed/failed info."""
     gdf = config.load_tile_status()
 
-    # Mark processed tiles
     for tile_id, timestamp in processed.items():
         mask = gdf["tile"] == tile_id
-        if mask.any():
-            current = gdf.loc[mask, "processing_status"].values[0]
-            if current != "processed":
-                gdf.loc[mask, "processing_status"] = "processed"
-                gdf.loc[mask, "notes"] = f"Processed at {timestamp}"
-                log.info(f"  {tile_id}: unprocessed -> processed")
+        if mask.any() and gdf.loc[mask, "processing_status"].values[0] != "processed":
+            gdf.loc[mask, "processing_status"] = "processed"
+            gdf.loc[mask, "notes"] = f"Processed at {timestamp}"
+            log.info(f"  {tile_id}: -> processed")
 
-    # Mark failed tiles (only if not already processed)
     for tile_id, error in failed.items():
         mask = gdf["tile"] == tile_id
-        if mask.any():
-            current = gdf.loc[mask, "processing_status"].values[0]
-            if current not in ("processed", "skip"):
-                gdf.loc[mask, "processing_status"] = "failed"
-                gdf.loc[mask, "notes"] = error
-                log.info(f"  {tile_id}: -> failed")
+        if mask.any() and gdf.loc[mask, "processing_status"].values[0] not in ("processed", "skip"):
+            gdf.loc[mask, "processing_status"] = "failed"
+            gdf.loc[mask, "notes"] = error
+            log.info(f"  {tile_id}: -> failed")
 
     return gdf
 
 
 def main():
     args = parse_args()
-    config = Config()
+    config = Config(args.config_file)
 
     processed = get_processed_tiles_from_icechunk(config)
     failed = get_failed_jobs_from_github(args.run_id, args.github_token, args.repo)
 
     gdf = update_geojson(config, processed, failed)
 
-    # Summary stats
     counts = gdf["processing_status"].value_counts()
     log.info("Tile status summary:")
     for status, count in counts.items():
