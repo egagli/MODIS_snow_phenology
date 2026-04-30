@@ -15,7 +15,6 @@ Usage (standalone, without GH Actions context — only updates from Icechunk his
 
 import argparse
 import logging
-import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -55,10 +54,10 @@ def get_processed_tiles_from_icechunk(config: Config) -> dict[str, str]:
     """
     log.info("Querying Icechunk commit history...")
     storage = icechunk.azure_storage(
-        account=os.environ["AZURE_STORAGE_ACCOUNT"],
+        account=config.azure_storage_account,
         container=config.azure_container,
         prefix=config.icechunk_prefix,
-        sas_token=os.environ["AZURE_STORAGE_SAS_TOKEN"],
+        sas_token=config.azure_storage_sas_token,
     )
     repo = icechunk.Repository.open(storage)
     session = repo.readonly_session("main")

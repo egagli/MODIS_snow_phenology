@@ -15,7 +15,6 @@ on:
           - all
 
 env:
-  AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
   AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
 
 permissions:
@@ -112,7 +111,6 @@ jobs:
       - name: Update tile processing status
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
           AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
         run: |
           pixi run -e ci python processing/scripts/summarize_processing.py \

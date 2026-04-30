@@ -11,7 +11,6 @@ On failure: exits nonzero; no Icechunk commit (store remains clean)
 
 import argparse
 import logging
-import os
 import sys
 import traceback
 from datetime import datetime, timezone
@@ -147,10 +146,10 @@ def main():
 
     # Open Icechunk store — credentials from environment
     storage = icechunk.azure_storage(
-        account=os.environ["AZURE_STORAGE_ACCOUNT"],
+        account=config.azure_storage_account,
         container=config.azure_container,
         prefix=config.icechunk_prefix,
-        sas_token=os.environ["AZURE_STORAGE_SAS_TOKEN"],
+        sas_token=config.azure_storage_sas_token,
     )
 
     # Read global coordinate grid for reindexing
