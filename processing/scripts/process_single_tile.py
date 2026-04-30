@@ -76,7 +76,7 @@ def process_water_year(
     """
     if hemisphere == "northern":
         # NH WY spans Oct(wy-1) – Sep(wy); fetch Oct(wy-2) – Sep(wy+1)
-        fetch_start = f"{wy - 1}-10-01"
+        fetch_start = f"{wy - 2}-10-01"
         fetch_end = f"{wy + 1}-09-30"
     else:
         # SH WY spans Apr(wy) – Mar(wy+1); fetch Apr(wy-1) – Mar(wy+2)
