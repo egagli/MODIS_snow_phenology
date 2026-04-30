@@ -8,6 +8,7 @@ Created: 04/2024
 import numpy as np
 import pandas as pd
 import xarray as xr
+import rioxarray  # noqa: F401 — registers .rio accessor
 import pystac_client
 import planetary_computer
 import odc.stac
