@@ -173,10 +173,7 @@ def main():
         log.warning(f"Skipped WYs (no data): {sorted(skipped)}")
 
     commit_message = f"{tile_id}: processed"
-    snapshot_id = session.commit(
-        commit_message,
-        conflict_solver=icechunk.ConflictDetector(),
-    )
+    snapshot_id = session.commit(commit_message)
     log.info(f"Committed: '{commit_message}' -> {snapshot_id}")
 
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
