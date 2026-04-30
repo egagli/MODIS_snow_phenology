@@ -49,7 +49,7 @@ def assign_water_year_coords(da: xr.DataArray, hemisphere: str) -> xr.DataArray:
         if hemisphere == "northern":
             return dt.year + 1 if dt.month >= 10 else dt.year
         else:
-            return dt.year + 1 if dt.month >= 4 else dt.year
+            return dt.year if dt.month >= 4 else dt.year - 1
 
     def datetime_to_dowy(dt, hemisphere):
         if hemisphere == "northern":
@@ -71,15 +71,17 @@ def process_water_year(
 ) -> xr.Dataset | None:
     """
     Fetch, cloud-fill, and compute snow metrics for a single water year.
-    Fetches 2 prior water years for cloud-fill warm-up (~92 timesteps, ~1 GB).
+    Fetches 1 prior and 1 following water year so bfill/ffill have full context.
     Returns None if there are too few observations.
     """
     if hemisphere == "northern":
-        fetch_start = f"{wy - 2}-10-01"
-        fetch_end = f"{wy}-09-30"
+        # NH WY spans Oct(wy-1) – Sep(wy); fetch Oct(wy-2) – Sep(wy+1)
+        fetch_start = f"{wy - 1}-10-01"
+        fetch_end = f"{wy + 1}-09-30"
     else:
-        fetch_start = f"{wy - 2}-04-01"
-        fetch_end = f"{wy + 1}-03-31"
+        # SH WY spans Apr(wy) – Mar(wy+1); fetch Apr(wy-1) – Mar(wy+2)
+        fetch_start = f"{wy - 1}-04-01"
+        fetch_end = f"{wy + 2}-03-31"
 
     log.info(f"WY{wy}: fetching {fetch_start} to {fetch_end}")
     raw = processing.get_modis_MOD10A2_max_snow_extent(
@@ -89,6 +91,40 @@ def process_water_year(
         end_date=fetch_end,
         chunks={"time": -1, "x": 2400, "y": 2400},
     )
+
+    # Polar night correction: for Arctic/Antarctic tiles, the sensor records
+    # no-snow (25) during winter darkness. Replace those with cloud/fill (255)
+    # so that cloud-filling (bfill) handles them instead of treating them as
+    # real no-snow observations that would corrupt SDD/SAD.
+    if v <= 2 or v >= 15:
+        log.info(f"WY{wy}: applying polar night correction (v={v})")
+        value25_da = raw.where(lambda x: x == 25).count(dim=["x", "y"])
+        value200_da = raw.where(lambda x: x == 200).count(dim=["x", "y"])
+        no_decision_and_night_counts = raw.where(lambda x: (x == 1) | (x == 11)).count(dim=["x", "y"])
+        land_area_da = value200_da + value25_da
+        max_land_pixels = land_area_da.max(dim="time")
+        bad_pixel_thresh = int(0.05 * int(max_land_pixels))
+        scenes_with_polar_night = no_decision_and_night_counts > bad_pixel_thresh
+        scenes_with_polar_night_buffered = (
+            scenes_with_polar_night.shift(time=-1).fillna(0)
+            | scenes_with_polar_night
+            | scenes_with_polar_night.shift(time=1).fillna(0)
+        ).astype(int)
+        backward_check = scenes_with_polar_night_buffered.rolling(time=4, center=False).sum() >= 4
+        forward_check = scenes_with_polar_night_buffered[::-1].rolling(time=4, center=False).sum()[::-1] >= 4
+        center_check = scenes_with_polar_night_buffered.rolling(time=4, center=True).sum() >= 4
+        scenes_with_polar_night_buffered_filtered = scenes_with_polar_night_buffered.where(
+            backward_check | forward_check | center_check, other=0
+        ).astype(bool).chunk(dict(time=-1))
+        scenes_with_polar_night_buffered_filtered_complete = (
+            scenes_with_polar_night_buffered_filtered.where(lambda x: x == 1)
+            .interpolate_na(dim="time", method="nearest", max_gap=pd.Timedelta(days=80))
+            .where(lambda x: x == 1, other=0)
+            .astype(bool)
+        )
+        raw = raw.where(
+            ~((raw == 25) & scenes_with_polar_night_buffered_filtered_complete), other=255
+        )
 
     binary = processing.binarize_with_cloud_filling(raw)
     binary = assign_water_year_coords(binary, hemisphere)
