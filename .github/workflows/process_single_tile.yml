@@ -3,6 +3,13 @@ name: Process Single Tile
 on:
   workflow_dispatch:
     inputs:
+      config_file:
+        description: 'Config file to use'
+        required: false
+        default: 'config/config_v1.txt'
+        type: choice
+        options:
+          - config/config_v1.txt
       h:
         description: 'MODIS horizontal tile index (0-35)'
         required: true
@@ -10,11 +17,6 @@ on:
       v:
         description: 'MODIS vertical tile index (0-17)'
         required: true
-        type: string
-      config_file:
-        description: 'Path to config file'
-        required: false
-        default: 'config/config_v1.txt'
         type: string
 
 env:
@@ -36,6 +38,25 @@ jobs:
 
       - name: Install package
         run: pixi run -e ci pip install -e .
+
+      - name: Print config
+        run: |
+          pixi run -e ci python -c "
+          import sys; sys.path.insert(0, '.')
+          from modis_snow_phenology.config import Config
+          c = Config('${{ inputs.config_file }}')
+          print(f'Config file   : ${{ inputs.config_file }}')
+          print(f'config_name   : {c.config_name}')
+          print(f'version       : {c.version}')
+          print(f'azure_container      : {c.azure_container}')
+          print(f'azure_storage_account: {c.azure_storage_account}')
+          print(f'icechunk_prefix      : {c.icechunk_prefix}')
+          print(f'tile_status_path     : {c.tile_status_path}')
+          print(f'wy_start      : {c.wy_start}')
+          print(f'wy_end        : {c.wy_end}')
+          print(f'shard_shape   : {c.shard_shape}')
+          print(f'inner_chunk_shape: {c.inner_chunk_shape}')
+          "
 
       - name: Process tile
         run: |
