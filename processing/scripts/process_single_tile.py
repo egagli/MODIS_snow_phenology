@@ -44,29 +44,7 @@ def parse_args():
     return p.parse_args()
 
 
-def fetch_and_binarize(h: int, v: int, config: Config) -> xr.DataArray:
-    """Fetch MOD10A2 for a tile across all water years and cloud-fill."""
-    start_date = f"{config.wy_start - 2}-10-01"
-    end_date = f"{config.wy_end}-09-30"
-
-    log.info(f"Fetching MOD10A2 h{h:02d}v{v:02d} ({start_date} to {end_date})")
-    raw = processing.get_modis_MOD10A2_max_snow_extent(
-        vertical_tile=v,
-        horizontal_tile=h,
-        start_date=start_date,
-        end_date=end_date,
-        chunks={"time": -1, "x": 2400, "y": 2400},
-    )
-    log.info(f"Raw data shape: {dict(zip(raw.dims, raw.shape))}")
-
-    log.info("Applying cloud filling...")
-    binary = processing.binarize_with_cloud_filling(raw)
-    return binary
-
-
 def assign_water_year_coords(da: xr.DataArray, hemisphere: str) -> xr.DataArray:
-    """Assign water_year and DOWY coordinates to a time-indexed DataArray."""
-
     def datetime_to_wy(dt, hemisphere):
         if hemisphere == "northern":
             return dt.year + 1 if dt.month >= 10 else dt.year
@@ -81,46 +59,49 @@ def assign_water_year_coords(da: xr.DataArray, hemisphere: str) -> xr.DataArray:
         return (dt - wy_start).days + 1
 
     times = pd.DatetimeIndex(da.time.values)
-    water_years = [datetime_to_wy(t, hemisphere) for t in times]
-    dowys = [datetime_to_dowy(t, hemisphere) for t in times]
-
     da = da.assign_coords(
-        water_year=("time", water_years),
-        DOWY=("time", dowys),
+        water_year=("time", [datetime_to_wy(t, hemisphere) for t in times]),
+        DOWY=("time", [datetime_to_dowy(t, hemisphere) for t in times]),
     )
     return da
 
 
-def compute_snow_metrics(binary: xr.DataArray, config: Config, hemisphere: str) -> xr.Dataset:
-    """Run the full snow metrics pipeline and return a Dataset with water_year dimension."""
-    binary = assign_water_year_coords(binary, hemisphere)
+def process_water_year(
+    h: int, v: int, wy: int, config: Config, hemisphere: str
+) -> xr.Dataset | None:
+    """
+    Fetch, cloud-fill, and compute snow metrics for a single water year.
+    Fetches 2 prior water years for cloud-fill warm-up (~92 timesteps, ~1 GB).
+    Returns None if there are too few observations.
+    """
+    if hemisphere == "northern":
+        fetch_start = f"{wy - 2}-10-01"
+        fetch_end = f"{wy}-09-30"
+    else:
+        fetch_start = f"{wy - 2}-04-01"
+        fetch_end = f"{wy + 1}-03-31"
 
-    log.info("Aligning water year starts...")
+    log.info(f"WY{wy}: fetching {fetch_start} to {fetch_end}")
+    raw = processing.get_modis_MOD10A2_max_snow_extent(
+        vertical_tile=v,
+        horizontal_tile=h,
+        start_date=fetch_start,
+        end_date=fetch_end,
+        chunks={"time": -1, "x": 2400, "y": 2400},
+    )
+
+    binary = processing.binarize_with_cloud_filling(raw)
+    binary = assign_water_year_coords(binary, hemisphere)
     binary_aligned = processing.align_wy_start(binary, hemisphere=hemisphere)
 
-    target_wys = np.arange(config.wy_start, config.wy_end + 1)
-    results = []
+    wy_da = binary_aligned.where(binary_aligned.water_year == wy, drop=True)
+    if len(wy_da.time) < 5:
+        log.warning(f"WY{wy}: only {len(wy_da.time)} observations, skipping")
+        return None
 
-    for wy in target_wys:
-        wy_da = binary_aligned.where(binary_aligned.water_year == wy, drop=True)
-        if len(wy_da.time) < 5:
-            log.warning(f"WY{wy}: only {len(wy_da.time)} observations, skipping")
-            continue
-
-        log.info(f"Computing snow metrics for WY{wy} ({len(wy_da.time)} obs)")
-        metrics = processing.get_max_consec_snow_days_SAD_SDD_one_WY(wy_da)
-        metrics = metrics.expand_dims(water_year=[wy])
-        results.append(metrics)
-
-    if not results:
-        raise ValueError("No valid water years found for this tile")
-
-    ds = xr.concat(results, dim="water_year")
-
-    fill = np.iinfo(np.int16).min
-    ds = ds.reindex(water_year=target_wys, fill_value=fill)
-
-    return ds
+    log.info(f"WY{wy}: computing snow metrics ({len(wy_da.time)} obs)")
+    metrics = processing.get_max_consec_snow_days_SAD_SDD_one_WY(wy_da)
+    return metrics.expand_dims(water_year=[wy])
 
 
 def main():
@@ -140,54 +121,56 @@ def main():
         sas_token=config.azure_storage_sas_token,
     )
 
-    # Read exact store coordinates for this tile's region.
-    # STAC-derived coordinates have float imprecision vs. the store; reassigning
-    # them to exactly match the store is required for region='auto' to work.
+    # Read exact store coordinates for this tile's slice.
+    # STAC-derived coordinates have float imprecision; we snap to the store's
+    # exact values so that region='auto' can match coordinates.
     log.info("Reading store coordinates for tile region...")
     repo_ro = icechunk.Repository.open(storage)
     session_ro = repo_ro.readonly_session("main")
     ds_store = xr.open_zarr(session_ro.store, zarr_format=3, consolidated=False)
-    y_slice = slice(v * 2400, (v + 1) * 2400)
-    x_slice = slice(h * 2400, (h + 1) * 2400)
-    store_y = ds_store.y[y_slice].values
-    store_x = ds_store.x[x_slice].values
+    store_y = ds_store.y[v * 2400 : (v + 1) * 2400].values
+    store_x = ds_store.x[h * 2400 : (h + 1) * 2400].values
 
-    # Full processing pipeline
-    binary = fetch_and_binarize(h, v, config)
-    ds_tile = compute_snow_metrics(binary, config, hemisphere)
-
-    # Snap tile coordinates to exact store values (atol=1m, pixel spacing ~463m)
-    if not (np.allclose(store_y, ds_tile.y.values, atol=1.0) and
-            np.allclose(store_x, ds_tile.x.values, atol=1.0)):
-        raise ValueError(
-            f"Tile {tile_id} y/x coordinates do not match the store grid "
-            f"(max y diff: {np.max(np.abs(store_y - ds_tile.y.values)):.2f} m, "
-            f"max x diff: {np.max(np.abs(store_x - ds_tile.x.values)):.2f} m)"
-        )
-    ds_tile = ds_tile.assign_coords(y=store_y, x=store_x)
-
-    # Write to Icechunk
+    # Open a single writable session — accumulate all WY writes before committing
     log.info("Opening writable Icechunk session...")
     repo = icechunk.Repository.open(storage)
     session = repo.writable_session("main")
 
-    log.info("Writing tile data (region='auto')...")
-    ds_write = ds_tile.drop_vars("spatial_ref", errors="ignore")
+    fill = np.iinfo(np.int16).min
+    target_wys = np.arange(config.wy_start, config.wy_end + 1)
+    written_wys = []
 
-    # _FillValue must not be in attrs — zarr encoding owns it
-    for var in ds_write.data_vars:
-        ds_write[var].attrs.pop("_FillValue", None)
+    for wy in target_wys:
+        metrics = process_water_year(h, v, wy, config, hemisphere)
+        if metrics is None:
+            continue
 
-    # Chunk to shard shape so writes align with store boundaries
-    shard = config.shard_shape  # (1, 2400, 2400)
-    ds_write = ds_write.chunk({"water_year": shard[0], "y": shard[1], "x": shard[2]})
+        # Snap tile coordinates to store's exact values
+        if not (np.allclose(store_y, metrics.y.values, atol=1.0) and
+                np.allclose(store_x, metrics.x.values, atol=1.0)):
+            raise ValueError(
+                f"WY{wy}: tile coordinates do not match store grid "
+                f"(max y diff: {np.max(np.abs(store_y - metrics.y.values)):.2f} m, "
+                f"max x diff: {np.max(np.abs(store_x - metrics.x.values)):.2f} m)"
+            )
+        metrics = metrics.assign_coords(y=store_y, x=store_x)
 
-    ds_write.to_zarr(
-        session.store,
-        region="auto",
-        mode="r+",
-        zarr_format=3,
-    )
+        ds_write = metrics.drop_vars("spatial_ref", errors="ignore")
+        for var in ds_write.data_vars:
+            ds_write[var].attrs.pop("_FillValue", None)
+        ds_write = ds_write.chunk({"water_year": 1, "y": 2400, "x": 2400})
+
+        log.info(f"WY{wy}: writing to store...")
+        ds_write.to_zarr(session.store, region="auto", mode="r+", zarr_format=3)
+        written_wys.append(wy)
+
+    if not written_wys:
+        raise ValueError(f"No water years written for tile {tile_id}")
+
+    # Fill any skipped WYs with the fill value (already initialized in store)
+    skipped = set(target_wys) - set(written_wys)
+    if skipped:
+        log.warning(f"Skipped WYs (no data): {sorted(skipped)}")
 
     commit_message = f"{tile_id}: processed"
     snapshot_id = session.commit(
