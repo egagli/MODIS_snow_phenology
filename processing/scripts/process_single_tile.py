@@ -55,7 +55,7 @@ def fetch_and_binarize(h: int, v: int, config: Config) -> xr.DataArray:
         horizontal_tile=h,
         start_date=start_date,
         end_date=end_date,
-        chunks={"time": -1, "x": 240, "y": 240},
+        chunks={"time": -1, "x": 2400, "y": 2400},
     )
     log.info(f"Raw data shape: {dict(zip(raw.dims, raw.shape))}")
 
@@ -123,17 +123,6 @@ def compute_snow_metrics(binary: xr.DataArray, config: Config, hemisphere: str) 
     return ds
 
 
-def reindex_to_global_grid(ds_tile: xr.Dataset, ds_store: xr.Dataset) -> xr.Dataset:
-    """Reindex tile dataset to align with the global Zarr store coordinates."""
-    log.info("Reindexing to global coordinate grid...")
-    return ds_tile.reindex(
-        y=ds_store.y,
-        x=ds_store.x,
-        method="nearest",
-        tolerance=500.0,  # MODIS pixel spacing ~463 m; 500 m tolerance catches float imprecision
-    )
-
-
 def main():
     args = parse_args()
     h, v = args.h, args.v
@@ -144,7 +133,6 @@ def main():
     log.info(f"Processing tile {tile_id} ({hemisphere} hemisphere) — config: {config.config_name}")
     start = datetime.now(timezone.utc)
 
-    # Open Icechunk store — credentials from environment
     storage = icechunk.azure_storage(
         account=config.azure_storage_account,
         container=config.azure_container,
@@ -152,18 +140,12 @@ def main():
         sas_token=config.azure_storage_sas_token,
     )
 
-    # Read global coordinate grid for reindexing
-    log.info("Reading global store coordinates (read-only)...")
-    repo_ro = icechunk.Repository.open(storage)
-    session_ro = repo_ro.readonly_session("main")
-    ds_store = xr.open_zarr(session_ro.store, zarr_format=3, consolidated=False)
-
-    # Full processing pipeline
+    # Full processing pipeline — tile coords are an exact subset of the global grid
+    # (both use MODIS sinusoidal), so no global reindex needed; region='auto' handles it
     binary = fetch_and_binarize(h, v, config)
     ds_tile = compute_snow_metrics(binary, config, hemisphere)
-    ds_tile = reindex_to_global_grid(ds_tile, ds_store)
 
-    # Write to Icechunk — open a fresh writable session
+    # Write to Icechunk
     log.info("Opening writable Icechunk session...")
     repo = icechunk.Repository.open(storage)
     session = repo.writable_session("main")
@@ -171,11 +153,11 @@ def main():
     log.info("Writing tile data (region='auto')...")
     ds_write = ds_tile.drop_vars("spatial_ref", errors="ignore")
 
-    # _FillValue must not be in attrs — zarr encoding owns it; strip it everywhere
+    # _FillValue must not be in attrs — zarr encoding owns it
     for var in ds_write.data_vars:
         ds_write[var].attrs.pop("_FillValue", None)
 
-    # Rechunk to match the store shard shape so region writes land cleanly
+    # Chunk to shard shape so writes align with store boundaries
     shard = config.shard_shape  # (1, 2400, 2400)
     ds_write = ds_write.chunk({"water_year": shard[0], "y": shard[1], "x": shard[2]})
 

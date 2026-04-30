@@ -11,6 +11,11 @@ on:
         description: 'MODIS vertical tile index (0-17)'
         required: true
         type: string
+      config_file:
+        description: 'Path to config file'
+        required: false
+        default: 'config/config_v1.txt'
+        type: string
 
 env:
   AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
@@ -36,4 +41,5 @@ jobs:
         run: |
           pixi run -e ci python processing/scripts/process_single_tile.py \
             --h ${{ inputs.h }} \
-            --v ${{ inputs.v }}
+            --v ${{ inputs.v }} \
+            --config-file ${{ inputs.config_file }}

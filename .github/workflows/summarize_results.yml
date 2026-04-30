@@ -8,6 +8,11 @@ on:
         required: false
         default: ''
         type: string
+      config_file:
+        description: 'Path to config file'
+        required: false
+        default: 'config/config_v1.txt'
+        type: string
 
 env:
   AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
@@ -39,12 +44,13 @@ jobs:
           RUN_ID="${{ inputs.run_id }}"
           if [ -n "$RUN_ID" ]; then
             pixi run -e ci python processing/scripts/summarize_processing.py \
+              --config-file ${{ inputs.config_file }} \
               --run-id "$RUN_ID" \
               --github-token "${{ secrets.GITHUB_TOKEN }}" \
               --repo "${{ github.repository }}"
           else
-            # Without a run ID, only update from Icechunk history (no failure detection)
-            pixi run -e ci python processing/scripts/summarize_processing.py
+            pixi run -e ci python processing/scripts/summarize_processing.py \
+              --config-file ${{ inputs.config_file }}
           fi
 
       - name: Commit updated GeoJSON

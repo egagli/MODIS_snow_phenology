@@ -13,6 +13,11 @@ on:
           - failed
           - unprocessed_and_failed
           - all
+      config_file:
+        description: 'Path to config file'
+        required: false
+        default: 'config/config_v1.txt'
+        type: string
 
 env:
   AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
@@ -44,6 +49,7 @@ jobs:
         id: get-tiles
         run: |
           COUNT=$(pixi run -e ci python processing/scripts/get_tiles_for_batch.py \
+            --config-file ${{ inputs.config_file }} \
             --which-tiles ${{ inputs.which_tiles }} \
             --output count)
           echo "count=$COUNT" >> $GITHUB_OUTPUT
@@ -55,6 +61,7 @@ jobs:
           fi
 
           MATRIX=$(pixi run -e ci python processing/scripts/get_tiles_for_batch.py \
+            --config-file ${{ inputs.config_file }} \
             --which-tiles ${{ inputs.which_tiles }} \
             --output json)
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
@@ -89,7 +96,8 @@ jobs:
         run: |
           pixi run -e ci python processing/scripts/process_single_tile.py \
             --h ${{ matrix.tile.h }} \
-            --v ${{ matrix.tile.v }}
+            --v ${{ matrix.tile.v }} \
+            --config-file ${{ inputs.config_file }}
 
   summarize-results:
     needs: process-tiles
@@ -114,6 +122,7 @@ jobs:
           AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
         run: |
           pixi run -e ci python processing/scripts/summarize_processing.py \
+            --config-file ${{ inputs.config_file }} \
             --run-id ${{ github.run_id }} \
             --github-token "${{ secrets.GITHUB_TOKEN }}" \
             --repo "${{ github.repository }}"
