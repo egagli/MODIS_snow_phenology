@@ -75,8 +75,9 @@ def process_water_year(
     Returns None if there are too few observations.
     """
     if hemisphere == "northern":
-        # NH WY spans Oct(wy-1) – Sep(wy); fetch Oct(wy-1) – Sep(wy+1) for context
-        fetch_start = f"{wy - 1}-10-01"
+        # NH WY spans Oct(wy-1) – Sep(wy); fetch Oct(wy-2) – Sep(wy+1) for context
+        # (wy-2)-10-01 = start of the prior water year WY(wy-1)
+        fetch_start = f"{wy - 2}-10-01"
         fetch_end_extended = f"{wy + 1}-09-30"
         fetch_end_fallback = f"{wy}-09-30"
     else:
