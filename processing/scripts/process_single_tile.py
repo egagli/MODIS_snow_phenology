@@ -70,7 +70,7 @@ def assign_water_year_coords(da: xr.DataArray, hemisphere: str) -> xr.DataArray:
 
     def datetime_to_wy(dt, hemisphere):
         if hemisphere == "northern":
-            return dt.year if dt.month >= 10 else dt.year
+            return dt.year + 1 if dt.month >= 10 else dt.year
         else:
             return dt.year + 1 if dt.month >= 4 else dt.year
 
@@ -131,7 +131,7 @@ def reindex_to_global_grid(ds_tile: xr.Dataset, ds_store: xr.Dataset) -> xr.Data
         y=ds_store.y,
         x=ds_store.x,
         method="nearest",
-        tolerance=1.0,
+        tolerance=500.0,  # MODIS pixel spacing ~463 m; 500 m tolerance catches float imprecision
     )
 
 
@@ -146,10 +146,10 @@ def main():
     start = datetime.now(timezone.utc)
 
     # Open Icechunk store — credentials from environment
-    storage = icechunk.Storage.new_azure_blob(
+    storage = icechunk.azure_storage(
+        account=os.environ["AZURE_STORAGE_ACCOUNT"],
         container=config.azure_container,
         prefix=config.icechunk_prefix,
-        account_name=os.environ["AZURE_STORAGE_ACCOUNT"],
         sas_token=os.environ["AZURE_STORAGE_SAS_TOKEN"],
     )
 
@@ -157,7 +157,7 @@ def main():
     log.info("Reading global store coordinates (read-only)...")
     repo_ro = icechunk.Repository.open(storage)
     session_ro = repo_ro.readonly_session("main")
-    ds_store = xr.open_zarr(session_ro.store(), zarr_format=3, consolidated=False)
+    ds_store = xr.open_zarr(session_ro.store, zarr_format=3, consolidated=False)
 
     # Full processing pipeline
     binary = fetch_and_binarize(h, v, config)
@@ -171,7 +171,7 @@ def main():
 
     log.info("Writing tile data (region='auto')...")
     ds_tile.drop_vars("spatial_ref", errors="ignore").to_zarr(
-        session.store(),
+        session.store,
         region="auto",
         mode="r+",
         zarr_format=3,

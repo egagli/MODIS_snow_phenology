@@ -54,10 +54,10 @@ def get_processed_tiles_from_icechunk(config: Config) -> dict[str, str]:
     for all tiles with a 'processed' commit.
     """
     log.info("Querying Icechunk commit history...")
-    storage = icechunk.Storage.new_azure_blob(
+    storage = icechunk.azure_storage(
+        account=os.environ["AZURE_STORAGE_ACCOUNT"],
         container=config.azure_container,
         prefix=config.icechunk_prefix,
-        account_name=os.environ["AZURE_STORAGE_ACCOUNT"],
         sas_token=os.environ["AZURE_STORAGE_SAS_TOKEN"],
     )
     repo = icechunk.Repository.open(storage)

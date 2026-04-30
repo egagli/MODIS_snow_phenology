@@ -7,6 +7,7 @@ values as attributes. Icechunk setup is left to the calling scripts.
 
 import configparser
 from pathlib import Path
+import os
 
 import geopandas as gpd
 
@@ -24,6 +25,20 @@ class Config:
         self.version: str = parser["METADATA"]["version"]
 
         self.azure_container: str = v["azure_container"]
+        self.azure_storage_account: str = v["azure_storage_account"]
+        
+        sas_token_env = os.getenv('AZURE_STORAGE_SAS_TOKEN')
+        if sas_token_env:
+            self.azure_storage_sas_token: str = sas_token_env
+        else:
+            sas_token_file = Path(REPO_ROOT) / "config" / "sas_token.txt"
+            if sas_token_file.exists():
+                self.azure_storage_sas_token: str = sas_token_file.read_text().strip()
+            else:
+                raise ValueError("Azure SAS token not found in environment "
+                                 "variable AZURE_STORAGE_SAS_TOKEN or "
+                                 "config/sas_token.txt")
+                
         self.icechunk_prefix: str = v["icechunk_prefix"]
 
         self.tile_status_path: Path = REPO_ROOT / v["tile_status_path"]

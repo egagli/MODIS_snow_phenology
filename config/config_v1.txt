@@ -4,7 +4,8 @@ version = v1
 
 [VALUES]
 azure_container = snowmelt
-icechunk_prefix = snow-phenology/global_modis_snow_phenology_v1
+azure_storage_account = uwcryo
+icechunk_prefix = modis_snow_phenology/modis_snow_phenology_v1
 tile_status_path = processing/tile_data/tile_processing_status.geojson
 wy_start = 2015
 wy_end = 2024
