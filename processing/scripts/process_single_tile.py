@@ -169,7 +169,17 @@ def main():
     session = repo.writable_session("main")
 
     log.info("Writing tile data (region='auto')...")
-    ds_tile.drop_vars("spatial_ref", errors="ignore").to_zarr(
+    ds_write = ds_tile.drop_vars("spatial_ref", errors="ignore")
+
+    # _FillValue must not be in attrs — zarr encoding owns it; strip it everywhere
+    for var in ds_write.data_vars:
+        ds_write[var].attrs.pop("_FillValue", None)
+
+    # Rechunk to match the store shard shape so region writes land cleanly
+    shard = config.shard_shape  # (1, 2400, 2400)
+    ds_write = ds_write.chunk({"water_year": shard[0], "y": shard[1], "x": shard[2]})
+
+    ds_write.to_zarr(
         session.store,
         region="auto",
         mode="r+",
