@@ -18,7 +18,7 @@ env:
 
 jobs:
   process-tile:
-    name: process-tile-h${{ format('{0:02d}', inputs.h) }}-v${{ format('{0:02d}', inputs.v) }}
+    name: process-tile-h${{ inputs.h }}-v${{ inputs.v }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
 

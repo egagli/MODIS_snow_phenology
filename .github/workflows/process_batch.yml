@@ -73,7 +73,7 @@ jobs:
         tile: ${{ fromJson(needs.generate-tile-matrix.outputs.matrix) }}
 
     # Explicit job name enables summarize_processing.py to match jobs to tiles via GH API
-    name: process-tile-h${{ format('{0:02d}', matrix.tile.h) }}-v${{ format('{0:02d}', matrix.tile.v) }}
+    name: process-tile-h${{ matrix.tile.h }}-v${{ matrix.tile.v }}
 
     steps:
       - uses: actions/checkout@v4
