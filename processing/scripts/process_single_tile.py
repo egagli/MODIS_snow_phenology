@@ -75,22 +75,40 @@ def process_water_year(
     Returns None if there are too few observations.
     """
     if hemisphere == "northern":
-        # NH WY spans Oct(wy-1) – Sep(wy); fetch Oct(wy-2) – Sep(wy+1)
-        fetch_start = f"{wy - 2}-10-01"
-        fetch_end = f"{wy + 1}-09-30"
+        # NH WY spans Oct(wy-1) – Sep(wy); fetch Oct(wy-1) – Sep(wy+1) for context
+        fetch_start = f"{wy - 1}-10-01"
+        fetch_end_extended = f"{wy + 1}-09-30"
+        fetch_end_fallback = f"{wy}-09-30"
     else:
-        # SH WY spans Apr(wy) – Mar(wy+1); fetch Apr(wy-1) – Mar(wy+2)
+        # SH WY spans Apr(wy) – Mar(wy+1); fetch Apr(wy-1) – Mar(wy+2) for context
         fetch_start = f"{wy - 1}-04-01"
-        fetch_end = f"{wy + 2}-03-31"
+        fetch_end_extended = f"{wy + 2}-03-31"
+        fetch_end_fallback = f"{wy + 1}-03-31"
 
-    log.info(f"WY{wy}: fetching {fetch_start} to {fetch_end}")
-    raw = processing.get_modis_MOD10A2_max_snow_extent(
-        vertical_tile=v,
-        horizontal_tile=h,
-        start_date=fetch_start,
-        end_date=fetch_end,
-        chunks={"time": -1, "x": 2400, "y": 2400},
-    )
+    log.info(f"WY{wy}: fetching {fetch_start} to {fetch_end_extended}")
+    try:
+        raw = processing.get_modis_MOD10A2_max_snow_extent(
+            vertical_tile=v,
+            horizontal_tile=h,
+            start_date=fetch_start,
+            end_date=fetch_end_extended,
+            chunks={"time": -1, "x": 2400, "y": 2400},
+        )
+    except ValueError:
+        # Extended window (wy+1) likely exceeds archive coverage (MODIS Terra
+        # decommissioned Nov 2024); fall back to fetching only through end of
+        # the target WY, losing future bfill context for this year only.
+        log.warning(
+            f"WY{wy}: extended fetch to {fetch_end_extended} returned no data; "
+            f"retrying with fallback end {fetch_end_fallback}"
+        )
+        raw = processing.get_modis_MOD10A2_max_snow_extent(
+            vertical_tile=v,
+            horizontal_tile=h,
+            start_date=fetch_start,
+            end_date=fetch_end_fallback,
+            chunks={"time": -1, "x": 2400, "y": 2400},
+        )
 
     # Polar night correction: for Arctic/Antarctic tiles, the sensor records
     # no-snow (25) during winter darkness. Replace those with cloud/fill (255)

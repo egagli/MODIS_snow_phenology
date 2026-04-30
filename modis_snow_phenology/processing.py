@@ -46,6 +46,12 @@ def get_modis_MOD10A2_max_snow_extent(
             print(f"STAC search attempt {attempt}/{max_retries} failed ({e}); retrying in {wait}s...")
             time.sleep(wait)
 
+    if len(items) == 0:
+        raise ValueError(
+            f"No STAC items found for h{horizontal_tile:02d}v{vertical_tile:02d} "
+            f"{start_date} – {end_date}. Collection may not cover this date range."
+        )
+
     load_params = {
         "items": items,
         "bands": "Maximum_Snow_Extent",
