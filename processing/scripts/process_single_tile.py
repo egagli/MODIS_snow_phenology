@@ -140,10 +140,31 @@ def main():
         sas_token=config.azure_storage_sas_token,
     )
 
-    # Full processing pipeline — tile coords are an exact subset of the global grid
-    # (both use MODIS sinusoidal), so no global reindex needed; region='auto' handles it
+    # Read exact store coordinates for this tile's region.
+    # STAC-derived coordinates have float imprecision vs. the store; reassigning
+    # them to exactly match the store is required for region='auto' to work.
+    log.info("Reading store coordinates for tile region...")
+    repo_ro = icechunk.Repository.open(storage)
+    session_ro = repo_ro.readonly_session("main")
+    ds_store = xr.open_zarr(session_ro.store, zarr_format=3, consolidated=False)
+    y_slice = slice(v * 2400, (v + 1) * 2400)
+    x_slice = slice(h * 2400, (h + 1) * 2400)
+    store_y = ds_store.y[y_slice].values
+    store_x = ds_store.x[x_slice].values
+
+    # Full processing pipeline
     binary = fetch_and_binarize(h, v, config)
     ds_tile = compute_snow_metrics(binary, config, hemisphere)
+
+    # Snap tile coordinates to exact store values (atol=1m, pixel spacing ~463m)
+    if not (np.allclose(store_y, ds_tile.y.values, atol=1.0) and
+            np.allclose(store_x, ds_tile.x.values, atol=1.0)):
+        raise ValueError(
+            f"Tile {tile_id} y/x coordinates do not match the store grid "
+            f"(max y diff: {np.max(np.abs(store_y - ds_tile.y.values)):.2f} m, "
+            f"max x diff: {np.max(np.abs(store_x - ds_tile.x.values)):.2f} m)"
+        )
+    ds_tile = ds_tile.assign_coords(y=store_y, x=store_x)
 
     # Write to Icechunk
     log.info("Opening writable Icechunk session...")
