@@ -5,6 +5,7 @@ Author: Eric Gagliano (egagli@uw.edu)
 Created: 04/2024
 """
 
+import time
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -16,9 +17,9 @@ import odc.stac
 
 
 def get_modis_MOD10A2_max_snow_extent(
-    vertical_tile, horizontal_tile, start_date, end_date, chunks={"time": -1, "x": 240, "y": 240}
+    vertical_tile, horizontal_tile, start_date, end_date, chunks={"time": -1, "x": 240, "y": 240},
+    max_retries=5,
 ):
-
     catalog = pystac_client.Client.open(
         "https://planetarycomputer.microsoft.com/api/stac/v1",
         modifier=planetary_computer.sign_inplace,
@@ -33,8 +34,20 @@ def get_modis_MOD10A2_max_snow_extent(
         },
     )
 
+    # Planetary Computer occasionally times out; retry with exponential backoff.
+    for attempt in range(1, max_retries + 1):
+        try:
+            items = search.item_collection()
+            break
+        except Exception as e:
+            if attempt == max_retries:
+                raise
+            wait = 2 ** attempt
+            print(f"STAC search attempt {attempt}/{max_retries} failed ({e}); retrying in {wait}s...")
+            time.sleep(wait)
+
     load_params = {
-        "items": search.item_collection(),
+        "items": items,
         "bands": "Maximum_Snow_Extent",
         "chunks": chunks,
     }
