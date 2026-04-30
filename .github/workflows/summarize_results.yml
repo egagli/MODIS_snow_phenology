@@ -40,23 +40,7 @@ jobs:
         run: pixi run -e ci pip install -e .
 
       - name: Print config
-        run: |
-          pixi run -e ci python -c "
-          import sys; sys.path.insert(0, '.')
-          from modis_snow_phenology.config import Config
-          c = Config('${{ inputs.config_file }}')
-          print(f'Config file   : ${{ inputs.config_file }}')
-          print(f'config_name   : {c.config_name}')
-          print(f'version       : {c.version}')
-          print(f'azure_container      : {c.azure_container}')
-          print(f'azure_storage_account: {c.azure_storage_account}')
-          print(f'icechunk_prefix      : {c.icechunk_prefix}')
-          print(f'tile_status_path     : {c.tile_status_path}')
-          print(f'wy_start      : {c.wy_start}')
-          print(f'wy_end        : {c.wy_end}')
-          print(f'shard_shape   : {c.shard_shape}')
-          print(f'inner_chunk_shape: {c.inner_chunk_shape}')
-          "
+        run: pixi run -e ci python processing/scripts/print_config.py --config-file ${{ inputs.config_file }}
 
       - name: Update tile processing status
         env:
