@@ -54,11 +54,19 @@ def get_modis_MOD10A2_max_snow_extent(
             f"No earthaccess granules found for {tile_id} {start_date}–{end_date}"
         )
 
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
+    _log.info(f"earthaccess: building authenticated HTTPS session...")
     session = earthaccess.get_requests_https_session()
+    _log.info(f"earthaccess: session ready, entering tmpdir context...")
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        _log.info(f"earthaccess: tmpdir created at {tmpdir}, starting sequential download of {len(results)} granules...")
         files = _download_granules_sequential(results, tmpdir, session)
+        _log.info(f"earthaccess: all {len(files)} granules downloaded, opening stack...")
         da = _open_mod10a2_stack(files)
+        _log.info(f"earthaccess: stack ready, shape={da.shape}")
 
     return da
 
@@ -70,12 +78,18 @@ def _download_granules_sequential(granules, local_path, session):
     Python's multiprocessing.resource_tracker even with threads=1, causing a
     semaphore leak and "operation canceled" crash on Python 3.14 + GitHub Actions.
     """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
     local_path = Path(local_path)
     files = []
-    for granule in granules:
+    for i, granule in enumerate(granules, 1):
         url = granule.data_links()[0]
         filename = local_path / url.split("/")[-1]
-        with session.get(url, stream=True) as r:
+        _log.info(f"  [{i}/{len(granules)}] GET {filename.name}")
+        # timeout=(connect_s, read_s): fail fast on hung connections rather than
+        # waiting indefinitely and letting the GH Actions runner kill the process.
+        with session.get(url, stream=True, timeout=(30, 300)) as r:
             r.raise_for_status()
             with open(filename, "wb") as f:
                 for chunk in r.iter_content(chunk_size=1 << 20):

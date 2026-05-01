@@ -10,7 +10,9 @@ On failure: exits nonzero; no Icechunk commit (store remains clean)
 """
 
 import argparse
+import faulthandler
 import logging
+import signal
 import sys
 import traceback
 from datetime import datetime, timezone
@@ -160,6 +162,16 @@ def process_water_year(
 
 
 def main():
+    # Dump Python+C tracebacks on SIGSEGV/SIGABRT/SIGFPE/SIGBUS (C-level crashes).
+    faulthandler.enable()
+
+    # Log and exit cleanly on SIGTERM so the runner's "operation canceled" has context.
+    def _sigterm_handler(signum, frame):
+        log.error("Received SIGTERM — process is being terminated externally")
+        traceback.print_stack(frame)
+        sys.exit(1)
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
     args = parse_args()
     h, v = args.h, args.v
     config = Config(args.config_file)
