@@ -22,6 +22,18 @@ import rioxarray as rxr  # noqa: F401 — registers .rio accessor
 #import numba
 
 
+def _rss_mb() -> int:
+    """Return current resident set size in MB (Linux only, no extra deps)."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) // 1024
+    except Exception:
+        pass
+    return -1
+
+
 def get_modis_MOD10A2_max_snow_extent(
     vertical_tile, horizontal_tile, start_date, end_date,
     chunks={"time": -1, "x": 240, "y": 240},
@@ -55,18 +67,24 @@ def get_modis_MOD10A2_max_snow_extent(
         )
 
     import logging as _logging
+    import shutil
     _log = _logging.getLogger(__name__)
 
-    _log.info(f"earthaccess: building authenticated HTTPS session...")
+    _log.info(f"earthaccess: building authenticated HTTPS session (RSS={_rss_mb()} MB)...")
     session = earthaccess.get_requests_https_session()
-    _log.info(f"earthaccess: session ready, entering tmpdir context...")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _log.info(f"earthaccess: tmpdir created at {tmpdir}, starting sequential download of {len(results)} granules...")
+    tmpdir_obj = tempfile.TemporaryDirectory()
+    tmpdir = tmpdir_obj.name
+    try:
+        _log.info(f"earthaccess: downloading {len(results)} granules (RSS={_rss_mb()} MB)...")
         files = _download_granules_sequential(results, tmpdir, session)
-        _log.info(f"earthaccess: all {len(files)} granules downloaded, opening stack...")
+        _log.info(f"earthaccess: opening stack (RSS={_rss_mb()} MB)...")
         da = _open_mod10a2_stack(files)
-        _log.info(f"earthaccess: stack ready, shape={da.shape}")
+        _log.info(f"earthaccess: stack ready, shape={da.shape}, RSS={_rss_mb()} MB")
+    finally:
+        _log.info(f"earthaccess: cleaning up tmpdir (RSS={_rss_mb()} MB)...")
+        tmpdir_obj.cleanup()
+        _log.info(f"earthaccess: tmpdir cleaned up (RSS={_rss_mb()} MB)")
 
     return da
 

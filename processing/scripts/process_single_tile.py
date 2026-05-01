@@ -26,6 +26,7 @@ import xarray as xr
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from modis_snow_phenology import processing
 from modis_snow_phenology.config import Config
+from modis_snow_phenology.processing import _rss_mb
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,7 +89,7 @@ def process_water_year(
         fetch_end_extended = f"{wy + 2}-03-31"
         fetch_end_fallback = f"{wy + 1}-03-31"
 
-    log.info(f"WY{wy}: fetching {fetch_start} to {fetch_end_extended}")
+    log.info(f"WY{wy}: fetching {fetch_start} to {fetch_end_extended} (RSS={_rss_mb()} MB)")
     try:
         raw = processing.get_modis_MOD10A2_max_snow_extent(
             vertical_tile=v,
@@ -112,6 +113,7 @@ def process_water_year(
             end_date=fetch_end_fallback,
             chunks={"time": -1, "x": 2400, "y": 2400},
         )
+    log.info(f"WY{wy}: raw fetched, shape={raw.shape}, dtype={raw.dtype}, RSS={_rss_mb()} MB")
 
     # Polar night correction: for Arctic/Antarctic tiles, the sensor records
     # no-snow (25) during winter darkness. Replace those with cloud/fill (255)
@@ -147,7 +149,9 @@ def process_water_year(
             ~((raw == 25) & scenes_with_polar_night_buffered_filtered_complete), other=255
         )
 
+    log.info(f"WY{wy}: binarizing (RSS={_rss_mb()} MB)...")
     binary = processing.binarize_with_cloud_filling(raw)
+    log.info(f"WY{wy}: binarize done (RSS={_rss_mb()} MB)")
     binary = assign_water_year_coords(binary, hemisphere)
     binary_aligned = processing.align_wy_start(binary, hemisphere=hemisphere)
 
@@ -156,7 +160,7 @@ def process_water_year(
         log.warning(f"WY{wy}: only {len(wy_da.time)} observations, skipping")
         return None
 
-    log.info(f"WY{wy}: computing snow metrics ({len(wy_da.time)} obs)")
+    log.info(f"WY{wy}: computing snow metrics ({len(wy_da.time)} obs, RSS={_rss_mb()} MB)")
     metrics = processing.get_max_consec_snow_days_SAD_SDD_one_WY(wy_da)
     return metrics.expand_dims(water_year=[wy])
 
