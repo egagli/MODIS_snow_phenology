@@ -157,7 +157,8 @@ def process_water_year(
     binary_aligned = processing.align_wy_start(binary, hemisphere=hemisphere)
     del binary  # 794 MB bool — not used after align_wy_start
 
-    wy_da = binary_aligned.where(binary_aligned.water_year == wy, drop=True)
+    # Use isel — .where(cond, drop=True) on int16 promotes to float64 (8×), causing OOM.
+    wy_da = binary_aligned.isel(time=(binary_aligned.water_year.values == wy))
     if len(wy_da.time) < 5:
         log.warning(f"WY{wy}: only {len(wy_da.time)} observations, skipping")
         return None

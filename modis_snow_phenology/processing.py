@@ -407,14 +407,17 @@ def align_wy_start(da,hemisphere='northern'):
     # Create a new DataArray to hold the modified data
     new_data = []
     
+    wy_vals = da.water_year.values  # 1-D array of water year per time step
+
     for wy in np.unique(valid_water_years):
-        # Get the last observation of the current water year
-        try:
-            last_obs = da.where(da.water_year==wy-1,drop=True).isel(time=-1)
-        except IndexError:
+        # Use isel+numpy mask — da.where(cond, drop=True) on a bool array promotes
+        # bool → float64 (8×) before dropping masked time steps, causing OOM.
+        prev_mask = wy_vals == (wy - 1)
+        if not prev_mask.any():
             print(f"Warning: No last observation of water year {wy-1}. This will affect calculation of water year {wy}, as the earliest possible snow appearance date will be DOWY 7 or 8. Skipping.")
             continue
-        
+        last_obs = da.isel(time=prev_mask).isel(time=-1)
+
         # Create a new observation for the start of the next water year
         new_obs = last_obs.copy()
 
@@ -422,15 +425,15 @@ def align_wy_start(da,hemisphere='northern'):
             first_date_of_water_year = pd.to_datetime(f"{wy-1}-10-01")
         if hemisphere == 'southern':
             first_date_of_water_year = pd.to_datetime(f"{wy}-04-01")
-        
+
         new_obs['time'] = first_date_of_water_year  # Set to October 1st of the next water year
         new_obs['water_year'] = wy
         new_obs['DOWY'] = 1
-        
+
         # Append the original and new observations
-        new_data.append(da.where(da.water_year==wy,drop=True))
+        new_data.append(da.isel(time=(wy_vals == wy)))
         new_data.append(new_obs)
-    
+
     # Concatenate all observations into a single DataArray
     combined_da = xr.concat(new_data, dim='time')
     new_data.clear()  # free per-WY slices immediately — they're now in combined_da
@@ -438,7 +441,9 @@ def align_wy_start(da,hemisphere='northern'):
     # Sort by time
     combined_da = combined_da.sortby('time')
 
-    combined_da = combined_da.where(combined_da.water_year.isin(valid_water_years), drop=True)
+    # Filter to valid water years — use isel to avoid bool→float64 promotion
+    keep_mask = np.isin(combined_da.water_year.values, valid_water_years)
+    combined_da = combined_da.isel(time=keep_mask)
     combined_da = combined_da.astype(np.int16)
 
     
