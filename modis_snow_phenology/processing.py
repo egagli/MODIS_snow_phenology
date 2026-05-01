@@ -17,7 +17,7 @@ import pystac_client
 import planetary_computer
 import odc.stac
 import xarray as xr
-import rioxarray  # noqa: F401 — registers .rio accessor
+import rioxarray as rxr  # noqa: F401 — registers .rio accessor
 #import numba
 
 
