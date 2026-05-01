@@ -68,10 +68,13 @@ def _open_mod10a2_stack(files):
     for f in sorted(files):
         date = _parse_modis_date(Path(f))
         hdf4_path = f'HDF4_EOS:EOS_GRID:"{f}":MOD_Grid_Snow_500m:Maximum_Snow_Extent'
+        # Call .load() immediately so the GDAL file handle is released before
+        # opening the next file — avoiding 138 simultaneous open HDF4 connections.
         da = (
             rxr.open_rasterio(hdf4_path, masked=False, lock=False)
             .squeeze("band", drop=True)
             .expand_dims(time=[pd.Timestamp(date)])
+            .load()
         )
         arrays.append(da)
     return xr.concat(arrays, dim="time").sortby("time")
