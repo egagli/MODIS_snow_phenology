@@ -12,8 +12,10 @@ On failure: exits nonzero; no Icechunk commit (store remains clean)
 import argparse
 import faulthandler
 import logging
+import random
 import signal
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -205,13 +207,8 @@ def main():
     store_y = ds_store.y[v * 2400 : (v + 1) * 2400].values
     store_x = ds_store.x[h * 2400 : (h + 1) * 2400].values
 
-    # Open a single writable session — accumulate all WY writes before committing
-    log.info("Opening writable Icechunk session...")
-    repo = icechunk.Repository.open(storage)
-    session = repo.writable_session("main")
-
-    fill = np.iinfo(np.int16).min
     target_wys = np.arange(config.wy_start, config.wy_end + 1)
+    pending_writes = []  # list of (wy, ds_write) — kept in memory for commit retries
     written_wys = []
 
     for wy in target_wys:
@@ -234,21 +231,43 @@ def main():
             ds_write[var].attrs.pop("_FillValue", None)
         ds_write = ds_write.chunk({"water_year": 1, "y": 2400, "x": 2400})
 
-        log.info(f"WY{wy}: writing to store...")
-        ds_write.to_zarr(session.store, region="auto", mode="r+", zarr_format=3)
+        pending_writes.append((wy, ds_write))
         written_wys.append(wy)
 
     if not written_wys:
         raise ValueError(f"No water years written for tile {tile_id}")
 
-    # Fill any skipped WYs with the fill value (already initialized in store)
     skipped = set(target_wys) - set(written_wys)
     if skipped:
         log.warning(f"Skipped WYs (no data): {sorted(skipped)}")
 
+    # Write + commit with retry on ConflictError. Parallel matrix jobs all
+    # commit to the same branch; reopen a fresh session each attempt so our
+    # parent snapshot matches the current HEAD.
     commit_message = f"{tile_id}: processed"
-    snapshot_id = session.commit(commit_message)
-    log.info(f"Committed: '{commit_message}' -> {snapshot_id}")
+    max_attempts = 20
+    repo = icechunk.Repository.open(storage)
+    for attempt in range(max_attempts):
+        if attempt > 0:
+            delay = random.uniform(2, 8) * attempt
+            log.warning(f"ConflictError on attempt {attempt}, retrying in {delay:.1f}s...")
+            time.sleep(delay)
+            repo = icechunk.Repository.open(storage)
+
+        session = repo.writable_session("main")
+        log.info(f"Writing {len(pending_writes)} WY(s) to store (attempt {attempt + 1})...")
+        for wy, ds_write in pending_writes:
+            log.info(f"WY{wy}: writing...")
+            ds_write.to_zarr(session.store, region="auto", mode="r+", zarr_format=3)
+
+        try:
+            snapshot_id = session.commit(commit_message)
+            log.info(f"Committed: '{commit_message}' -> {snapshot_id}")
+            break
+        except icechunk.ConflictError as e:
+            log.warning(f"ConflictError: {e}")
+            if attempt == max_attempts - 1:
+                raise
 
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     log.info(f"Done. Total time: {elapsed:.1f}s")
