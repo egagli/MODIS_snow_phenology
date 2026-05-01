@@ -98,6 +98,9 @@ jobs:
         run: pixi run -e ci pip install -e .
 
       - name: Process tile
+        env:
+          EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
+          EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
         run: |
           pixi run -e ci python processing/scripts/process_single_tile.py \
             --h ${{ matrix.tile.h }} \

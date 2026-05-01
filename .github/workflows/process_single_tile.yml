@@ -43,6 +43,9 @@ jobs:
         run: pixi run -e ci python processing/scripts/print_config.py --config-file ${{ inputs.config_file }}
 
       - name: Process tile
+        env:
+          EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
+          EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
         run: |
           pixi run -e ci python processing/scripts/process_single_tile.py \
             --h ${{ inputs.h }} \

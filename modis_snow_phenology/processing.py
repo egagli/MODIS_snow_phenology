@@ -5,18 +5,90 @@ Author: Eric Gagliano (egagli@uw.edu)
 Created: 04/2024
 """
 
+import re
+import tempfile
 import time
+from pathlib import Path
+
+import earthaccess
 import numpy as np
 import pandas as pd
-import xarray as xr
-import rioxarray  # noqa: F401 — registers .rio accessor
 import pystac_client
 import planetary_computer
 import odc.stac
+import xarray as xr
+import rioxarray  # noqa: F401 — registers .rio accessor
 #import numba
 
 
 def get_modis_MOD10A2_max_snow_extent(
+    vertical_tile, horizontal_tile, start_date, end_date,
+    chunks={"time": -1, "x": 240, "y": 240},
+):
+    """Fetch MOD10A2 Maximum_Snow_Extent via earthaccess (NASA Earthdata HDF4 files).
+
+    Replaced Planetary Computer STAC + odc.stac; see
+    _get_modis_MOD10A2_max_snow_extent_planetary_computer for the old implementation.
+    Reason: PC stopped archiving MOD10A2 ~June 2025 (MODIS Terra decommissioned Nov 2024).
+
+    To revert to Planetary Computer:
+      1. Rename this function to _get_modis_MOD10A2_max_snow_extent_earthaccess
+      2. Rename _get_modis_MOD10A2_max_snow_extent_planetary_computer back to
+         get_modis_MOD10A2_max_snow_extent
+      3. Remove EARTHDATA_USERNAME/EARTHDATA_PASSWORD from workflow env blocks
+         (AZURE_STORAGE_SAS_TOKEN is still present for Icechunk — unchanged)
+      4. pystac-client, planetary-computer, odc-stac remain in pixi.toml — no lock regen needed
+    """
+    earthaccess.login(strategy="environment")  # reads EARTHDATA_USERNAME + EARTHDATA_PASSWORD
+
+    tile_id = f"h{horizontal_tile:02d}v{vertical_tile:02d}"
+    results = earthaccess.search_data(
+        short_name="MOD10A2",
+        temporal=(start_date, end_date),
+        granule_name=f"MOD10A2.A*.{tile_id}.*",
+    )
+
+    if len(results) == 0:
+        raise ValueError(
+            f"No earthaccess granules found for {tile_id} {start_date}–{end_date}"
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        files = earthaccess.download(results, local_path=tmpdir)
+        da = _open_mod10a2_stack(files)
+        # Load into memory before tmpdir is deleted — rioxarray opens HDF4 lazily,
+        # and all downstream ops (cloud-fill, polar night, numba JIT) trigger late.
+        da = da.load()
+
+    return da
+
+
+def _open_mod10a2_stack(files):
+    arrays = []
+    for f in sorted(files):
+        date = _parse_modis_date(Path(f))
+        hdf4_path = f'HDF4_EOS:EOS_GRID:"{f}":MOD_Grid_Snow_500m:Maximum_Snow_Extent'
+        da = (
+            rxr.open_rasterio(hdf4_path, masked=False, lock=False)
+            .squeeze("band", drop=True)
+            .expand_dims(time=[pd.Timestamp(date)])
+        )
+        arrays.append(da)
+    return xr.concat(arrays, dim="time").sortby("time")
+
+
+def _parse_modis_date(filepath: Path):
+    m = re.search(r"\.A(\d{4})(\d{3})\.", filepath.name)
+    year, doy = int(m.group(1)), int(m.group(2))
+    return pd.Timestamp(year, 1, 1) + pd.Timedelta(days=doy - 1)
+
+
+# DEPRECATED — kept for reference and easy revert.
+# Stopped working ~June 2025: Planetary Computer no longer archives MOD10A2
+# (MODIS Terra decommissioned Nov 2024). PC STAC returns 0 items for queries
+# past the archive cutoff, causing odc.stac.load to fail with
+# "Failed to auto-guess CRS/resolution."
+def _get_modis_MOD10A2_max_snow_extent_planetary_computer(
     vertical_tile, horizontal_tile, start_date, end_date, chunks={"time": -1, "x": 240, "y": 240},
     max_retries=5,
 ):
@@ -34,7 +106,6 @@ def get_modis_MOD10A2_max_snow_extent(
         },
     )
 
-    # Planetary Computer occasionally times out; retry with exponential backoff.
     for attempt in range(1, max_retries + 1):
         try:
             items = search.item_collection()
@@ -52,13 +123,9 @@ def get_modis_MOD10A2_max_snow_extent(
             f"{start_date} – {end_date}. Collection may not cover this date range."
         )
 
-    load_params = {
-        "items": items,
-        "bands": "Maximum_Snow_Extent",
-        "chunks": chunks,
-    }
-
-    modis_snow = odc.stac.load(**load_params)["Maximum_Snow_Extent"]
+    modis_snow = odc.stac.load(
+        items=items, bands="Maximum_Snow_Extent", chunks=chunks
+    )["Maximum_Snow_Extent"]
 
     return modis_snow
 
