@@ -151,9 +151,11 @@ def process_water_year(
 
     log.info(f"WY{wy}: binarizing (RSS={_rss_mb()} MB)...")
     binary = processing.binarize_with_cloud_filling(raw)
+    del raw  # 794 MB uint8 — not used after binarize; free before align_wy_start
     log.info(f"WY{wy}: binarize done (RSS={_rss_mb()} MB)")
     binary = assign_water_year_coords(binary, hemisphere)
     binary_aligned = processing.align_wy_start(binary, hemisphere=hemisphere)
+    del binary  # 794 MB bool — not used after align_wy_start
 
     wy_da = binary_aligned.where(binary_aligned.water_year == wy, drop=True)
     if len(wy_da.time) < 5:

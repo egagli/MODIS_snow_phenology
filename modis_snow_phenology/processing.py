@@ -433,7 +433,8 @@ def align_wy_start(da,hemisphere='northern'):
     
     # Concatenate all observations into a single DataArray
     combined_da = xr.concat(new_data, dim='time')
-    
+    new_data.clear()  # free per-WY slices immediately — they're now in combined_da
+
     # Sort by time
     combined_da = combined_da.sortby('time')
 
