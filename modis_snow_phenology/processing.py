@@ -55,9 +55,9 @@ def get_modis_MOD10A2_max_snow_extent(
         )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # workers=1: sequential downloads to avoid multiprocessing pool crashes
-        # on Python 3.14 + GitHub Actions (leaked semaphore / "operation canceled").
-        files = earthaccess.download(results, local_path=tmpdir, workers=1)
+        # threads=1: sequential downloads to avoid thread-pool crashes on
+        # Python 3.14 + GitHub Actions (leaked semaphore / "operation canceled").
+        files = earthaccess.download(results, local_path=tmpdir, threads=1)
         da = _open_mod10a2_stack(files)
 
     return da
