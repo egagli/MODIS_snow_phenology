@@ -56,28 +56,41 @@ def get_modis_MOD10A2_max_snow_extent(
     with tempfile.TemporaryDirectory() as tmpdir:
         files = earthaccess.download(results, local_path=tmpdir)
         da = _open_mod10a2_stack(files)
-        # Load into memory before tmpdir is deleted — rioxarray opens HDF4 lazily,
-        # and all downstream ops (cloud-fill, polar night, numba JIT) trigger late.
-        da = da.load()
 
     return da
 
 
 def _open_mod10a2_stack(files):
-    arrays = []
-    for f in sorted(files):
-        date = _parse_modis_date(Path(f))
-        hdf4_path = f'HDF4_EOS:EOS_GRID:"{f}":MOD_Grid_Snow_500m:Maximum_Snow_Extent'
-        # Call .load() immediately so the GDAL file handle is released before
-        # opening the next file — avoiding 138 simultaneous open HDF4 connections.
-        da = (
-            rxr.open_rasterio(hdf4_path, masked=False, lock=False)
-            .squeeze("band", drop=True)
-            .expand_dims(time=[pd.Timestamp(date)])
-            .load()
-        )
-        arrays.append(da)
-    return xr.concat(arrays, dim="time").sortby("time")
+    sorted_files = sorted(files)
+    dates = [pd.Timestamp(_parse_modis_date(Path(f))) for f in sorted_files]
+
+    # Read the first file to get spatial shape, dtype, and coordinates.
+    da0 = rxr.open_rasterio(
+        f'HDF4_EOS:EOS_GRID:"{sorted_files[0]}":MOD_Grid_Snow_500m:Maximum_Snow_Extent',
+        masked=False, lock=False,
+    ).squeeze("band", drop=True)
+    y_coords = da0.y.values.copy()
+    x_coords = da0.x.values.copy()
+
+    # Pre-allocate the full output array so we never hold N individual arrays
+    # plus a concat copy simultaneously (halves peak memory vs xr.concat).
+    data = np.empty((len(sorted_files), len(y_coords), len(x_coords)), dtype=da0.values.dtype)
+    data[0] = da0.values
+    del da0
+
+    for i, f in enumerate(sorted_files[1:], start=1):
+        da = rxr.open_rasterio(
+            f'HDF4_EOS:EOS_GRID:"{f}":MOD_Grid_Snow_500m:Maximum_Snow_Extent',
+            masked=False, lock=False,
+        ).squeeze("band", drop=True)
+        data[i] = da.values
+        del da  # release rasterio file handle immediately
+
+    return xr.DataArray(
+        data,
+        dims=["time", "y", "x"],
+        coords={"time": dates, "y": y_coords, "x": x_coords},
+    ).sortby("time")
 
 
 def _parse_modis_date(filepath: Path):
