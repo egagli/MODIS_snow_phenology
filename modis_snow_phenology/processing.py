@@ -234,25 +234,38 @@ def binarize_with_cloud_filling(da):
     NO_DECISION_VALUE = 1
     FILL_VALUE = 255
 
-    # optionally replace darkness values with cloud value
-    da = da.where(da != DARKNESS_VALUE, CLOUD_VALUE)
-    # optionally replace FILL_VALUE with cloud value
-    da = da.where(da != FILL_VALUE, CLOUD_VALUE)
-    # optionally replace no decision values with cloud value
-    da = da.where(da != NO_DECISION_VALUE, CLOUD_VALUE)
+    # Work directly in uint8 numpy to avoid float64 promotion.
+    # xarray's da.where(cond) with no `other` fills masked positions with NaN,
+    # converting uint8 → float64 (8×). For a 138×2400×2400 tile that's ~6 GB
+    # per temporary array; two of them (ffill + bfill) exceed GH Actions RAM.
+    vals = da.values.copy()  # (T, H, W) uint8
 
+    # Remap all "uncertain" codes to CLOUD_VALUE in-place (stays uint8)
+    uncertain = (vals == DARKNESS_VALUE) | (vals == FILL_VALUE) | (vals == NO_DECISION_VALUE)
+    vals[uncertain] = CLOUD_VALUE
+    del uncertain
 
-    # Avoid repeated ffill and bfill operations
-    ffilled = da.where(lambda x: x != CLOUD_VALUE).ffill(dim="time")
-    bfilled = da.where(lambda x: x != CLOUD_VALUE).bfill(dim="time")
-    
-    # Compute effective snow only once
-    effective_snow = xr.where((ffilled == SNOW_VALUE) & (bfilled == SNOW_VALUE), 1, 0).astype(bool)
+    cloud = vals == CLOUD_VALUE  # (T, H, W) bool
 
+    # Forward fill: carry last non-cloud value forward over cloud gaps
+    ff = vals.copy()
+    for t in range(1, ff.shape[0]):
+        np.copyto(ff[t], ff[t - 1], where=cloud[t])
+
+    # Backward fill: carry next non-cloud value backward over cloud gaps
+    bf = vals.copy()
+    for t in range(bf.shape[0] - 2, -1, -1):
+        np.copyto(bf[t], bf[t + 1], where=cloud[t])
+
+    del cloud, vals
+
+    effective_snow = (ff == SNOW_VALUE) & (bf == SNOW_VALUE)
+    del ff, bf
+
+    result = da.copy(data=effective_snow)
     if da.rio.crs is not None:
-        effective_snow = effective_snow.rio.write_crs(da.rio.crs)
-
-    return effective_snow
+        result = result.rio.write_crs(da.rio.crs)
+    return result
 
 
 def get_longest_consec_stretch(arr):
