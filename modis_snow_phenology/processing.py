@@ -13,6 +13,7 @@ from pathlib import Path
 import earthaccess
 import numpy as np
 import pandas as pd
+import rasterio
 import pystac_client
 import planetary_computer
 import odc.stac
@@ -64,27 +65,23 @@ def _open_mod10a2_stack(files):
     sorted_files = sorted(files)
     dates = [pd.Timestamp(_parse_modis_date(Path(f))) for f in sorted_files]
 
-    # Read the first file to get spatial shape, dtype, and coordinates.
-    da0 = rxr.open_rasterio(
-        f'HDF4_EOS:EOS_GRID:"{sorted_files[0]}":MOD_Grid_Snow_500m:Maximum_Snow_Extent',
-        masked=False, lock=False,
-    ).squeeze("band", drop=True)
-    y_coords = da0.y.values.copy()
-    x_coords = da0.x.values.copy()
+    # Use rasterio directly (not rioxarray) so each file is opened and closed
+    # via a proper context manager — rioxarray's lazy DataArray cleanup caused
+    # intermittent GDAL segfaults when reading 100+ HDF4 files sequentially.
+    hdf4_path = lambda f: f'HDF4_EOS:EOS_GRID:"{f}":MOD_Grid_Snow_500m:Maximum_Snow_Extent'
 
-    # Pre-allocate the full output array so we never hold N individual arrays
-    # plus a concat copy simultaneously (halves peak memory vs xr.concat).
-    data = np.empty((len(sorted_files), len(y_coords), len(x_coords)), dtype=da0.values.dtype)
-    data[0] = da0.values
-    del da0
+    # Read first file to determine shape, dtype, and cell-center coordinates.
+    with rasterio.open(hdf4_path(sorted_files[0])) as src:
+        ny, nx = src.height, src.width
+        t = src.transform
+        x_coords = t.c + t.a * (np.arange(nx) + 0.5)
+        y_coords = t.f + t.e * (np.arange(ny) + 0.5)
+        data = np.empty((len(sorted_files), ny, nx), dtype=src.dtypes[0])
+        data[0] = src.read(1)
 
     for i, f in enumerate(sorted_files[1:], start=1):
-        da = rxr.open_rasterio(
-            f'HDF4_EOS:EOS_GRID:"{f}":MOD_Grid_Snow_500m:Maximum_Snow_Extent',
-            masked=False, lock=False,
-        ).squeeze("band", drop=True)
-        data[i] = da.values
-        del da  # release rasterio file handle immediately
+        with rasterio.open(hdf4_path(f)) as src:
+            data[i] = src.read(1)
 
     return xr.DataArray(
         data,
