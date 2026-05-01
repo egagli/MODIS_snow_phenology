@@ -117,7 +117,7 @@ def _download_granules_sequential(granules, local_path, session):
 
 
 def _open_mod10a2_stack(files):
-    sorted_files = sorted(files)
+    sorted_files = sorted(f for f in files if f.endswith(".hdf"))
     dates = [pd.Timestamp(_parse_modis_date(Path(f))) for f in sorted_files]
 
     # Use rasterio directly (not rioxarray) so each file is opened and closed
