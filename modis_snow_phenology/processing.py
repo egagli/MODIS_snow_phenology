@@ -52,7 +52,11 @@ def get_modis_MOD10A2_max_snow_extent(
          (AZURE_STORAGE_SAS_TOKEN is still present for Icechunk — unchanged)
       4. pystac-client, planetary-computer, odc-stac remain in pixi.toml — no lock regen needed
     """
-    earthaccess.login(strategy="environment")  # reads EARTHDATA_USERNAME + EARTHDATA_PASSWORD
+    # Prefer token auth (no URS network call) when EARTHDATA_TOKEN is set;
+    # fall back to username/password which requires a live connection to urs.earthdata.nasa.gov.
+    import os as _os
+    _strategy = "token" if _os.environ.get("EARTHDATA_TOKEN") else "environment"
+    earthaccess.login(strategy=_strategy)
 
     tile_id = f"h{horizontal_tile:02d}v{vertical_tile:02d}"
     results = earthaccess.search_data(
