@@ -52,19 +52,26 @@ def get_modis_MOD10A2_max_snow_extent(
          (AZURE_STORAGE_SAS_TOKEN is still present for Icechunk — unchanged)
       4. pystac-client, planetary-computer, odc-stac remain in pixi.toml — no lock regen needed
     """
-    import os as _os
+    import logging as _logging
+    import time as _time
+    _log_auth = _logging.getLogger(__name__)
 
-    _token = _os.environ.get("EARTHDATA_TOKEN")
-    if _token:
-        # Token auth: no URS network call needed for login.
-        # get_session() builds a SessionWithHeaderRedirection with the Bearer token
-        # in its headers without making any network requests.
-        earthaccess.login(strategy="token")
-        _auth_session = earthaccess.__auth__.get_session()
-    else:
-        # Username/password: requires a live connection to urs.earthdata.nasa.gov.
-        earthaccess.login(strategy="environment")
-        _auth_session = earthaccess.get_requests_https_session()
+    # Login with username/password. Retry to handle transient ENETUNREACH on
+    # some GitHub Actions runners (IPv6 routing failures to urs.earthdata.nasa.gov).
+    for _attempt in range(5):
+        try:
+            earthaccess.login(strategy="environment")
+            break
+        except Exception as _exc:
+            if _attempt == 4:
+                raise
+            _log_auth.warning(
+                f"earthaccess login attempt {_attempt + 1} failed ({_exc}), "
+                f"retrying in {2 ** _attempt}s..."
+            )
+            _time.sleep(2 ** _attempt)
+
+    _auth_session = earthaccess.get_requests_https_session()
 
     tile_id = f"h{horizontal_tile:02d}v{vertical_tile:02d}"
     results = earthaccess.search_data(
@@ -78,10 +85,8 @@ def get_modis_MOD10A2_max_snow_extent(
             f"No earthaccess granules found for {tile_id} {start_date}–{end_date}"
         )
 
-    import logging as _logging
-    _log = _logging.getLogger(__name__)
-
-    _log.info(f"earthaccess: building authenticated HTTPS session (RSS={_rss_mb()} MB)...")
+    _log_auth.info(f"earthaccess: building authenticated HTTPS session (RSS={_rss_mb()} MB)...")
+    _log = _log_auth
     session = _auth_session
 
     tmpdir_obj = tempfile.TemporaryDirectory()
