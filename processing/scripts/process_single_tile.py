@@ -123,9 +123,16 @@ def process_water_year(
     # real no-snow observations that would corrupt SDD/SAD.
     if v <= 2 or v >= 15:
         log.info(f"WY{wy}: applying polar night correction (v={v})")
-        value25_da = raw.where(lambda x: x == 25).count(dim=["x", "y"])
-        value200_da = raw.where(lambda x: x == 200).count(dim=["x", "y"])
-        no_decision_and_night_counts = raw.where(lambda x: (x == 1) | (x == 11)).count(dim=["x", "y"])
+        # Avoid .where(...).count(): promotes (T,2400,2400) uint8 → float64 (~6 GB) per call.
+        # Use numpy boolean sums directly — same result, no large intermediate.
+        _rn = raw.values  # (T, Y, X) uint8, already in memory
+        _t = raw.time
+        value25_da = xr.DataArray((_rn == 25).sum(axis=(1, 2)), dims="time", coords={"time": _t})
+        value200_da = xr.DataArray((_rn == 200).sum(axis=(1, 2)), dims="time", coords={"time": _t})
+        no_decision_and_night_counts = xr.DataArray(
+            ((_rn == 1) | (_rn == 11)).sum(axis=(1, 2)), dims="time", coords={"time": _t}
+        )
+        del _rn
         land_area_da = value200_da + value25_da
         max_land_pixels = land_area_da.max(dim="time")
         bad_pixel_thresh = int(0.05 * int(max_land_pixels))
