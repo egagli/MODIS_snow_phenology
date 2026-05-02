@@ -52,11 +52,21 @@ def get_modis_MOD10A2_max_snow_extent(
          (AZURE_STORAGE_SAS_TOKEN is still present for Icechunk — unchanged)
       4. pystac-client, planetary-computer, odc-stac remain in pixi.toml — no lock regen needed
     """
-    # Prefer token auth (no URS network call) when EARTHDATA_TOKEN is set;
-    # fall back to username/password which requires a live connection to urs.earthdata.nasa.gov.
     import os as _os
-    _strategy = "token" if _os.environ.get("EARTHDATA_TOKEN") else "environment"
-    earthaccess.login(strategy=_strategy)
+    import requests as _requests
+
+    _token = _os.environ.get("EARTHDATA_TOKEN")
+    if _token:
+        # Token auth: no URS network call needed for login. earthaccess search_data
+        # works with strategy="token" but __store__ may not be initialized in all
+        # versions, so build the download session directly with a Bearer header.
+        earthaccess.login(strategy="token")
+        _auth_session = _requests.Session()
+        _auth_session.headers.update({"Authorization": f"Bearer {_token}"})
+    else:
+        # Username/password: requires a live connection to urs.earthdata.nasa.gov.
+        earthaccess.login(strategy="environment")
+        _auth_session = None  # built below after search
 
     tile_id = f"h{horizontal_tile:02d}v{vertical_tile:02d}"
     results = earthaccess.search_data(
@@ -75,7 +85,9 @@ def get_modis_MOD10A2_max_snow_extent(
     _log = _logging.getLogger(__name__)
 
     _log.info(f"earthaccess: building authenticated HTTPS session (RSS={_rss_mb()} MB)...")
-    session = earthaccess.get_requests_https_session()
+    if _auth_session is None:
+        _auth_session = earthaccess.get_requests_https_session()
+    session = _auth_session
 
     tmpdir_obj = tempfile.TemporaryDirectory()
     tmpdir = tmpdir_obj.name
