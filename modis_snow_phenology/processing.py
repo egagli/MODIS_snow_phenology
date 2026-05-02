@@ -53,20 +53,18 @@ def get_modis_MOD10A2_max_snow_extent(
       4. pystac-client, planetary-computer, odc-stac remain in pixi.toml — no lock regen needed
     """
     import os as _os
-    import requests as _requests
 
     _token = _os.environ.get("EARTHDATA_TOKEN")
     if _token:
-        # Token auth: no URS network call needed for login. earthaccess search_data
-        # works with strategy="token" but __store__ may not be initialized in all
-        # versions, so build the download session directly with a Bearer header.
+        # Token auth: no URS network call needed for login.
+        # get_session() builds a SessionWithHeaderRedirection with the Bearer token
+        # in its headers without making any network requests.
         earthaccess.login(strategy="token")
-        _auth_session = _requests.Session()
-        _auth_session.headers.update({"Authorization": f"Bearer {_token}"})
+        _auth_session = earthaccess.__auth__.get_session()
     else:
         # Username/password: requires a live connection to urs.earthdata.nasa.gov.
         earthaccess.login(strategy="environment")
-        _auth_session = None  # built below after search
+        _auth_session = earthaccess.get_requests_https_session()
 
     tile_id = f"h{horizontal_tile:02d}v{vertical_tile:02d}"
     results = earthaccess.search_data(
@@ -81,12 +79,9 @@ def get_modis_MOD10A2_max_snow_extent(
         )
 
     import logging as _logging
-    import shutil
     _log = _logging.getLogger(__name__)
 
     _log.info(f"earthaccess: building authenticated HTTPS session (RSS={_rss_mb()} MB)...")
-    if _auth_session is None:
-        _auth_session = earthaccess.get_requests_https_session()
     session = _auth_session
 
     tmpdir_obj = tempfile.TemporaryDirectory()
@@ -113,6 +108,7 @@ def _download_granules_sequential(granules, local_path, session):
     semaphore leak and "operation canceled" crash on Python 3.14 + GitHub Actions.
     """
     import logging as _logging
+    import time as _time
     _log = _logging.getLogger(__name__)
 
     local_path = Path(local_path)
@@ -121,13 +117,22 @@ def _download_granules_sequential(granules, local_path, session):
         url = granule.data_links()[0]
         filename = local_path / url.split("/")[-1]
         _log.info(f"  [{i}/{len(granules)}] GET {filename.name}")
-        # timeout=(connect_s, read_s): fail fast on hung connections rather than
-        # waiting indefinitely and letting the GH Actions runner kill the process.
-        with session.get(url, stream=True, timeout=(30, 300)) as r:
-            r.raise_for_status()
-            with open(filename, "wb") as f:
-                for chunk in r.iter_content(chunk_size=1 << 20):
-                    f.write(chunk)
+        for attempt in range(5):
+            if attempt:
+                _time.sleep(2 ** attempt)  # 2, 4, 8, 16 s
+            try:
+                # timeout=(connect_s, read_s): fail fast on hung connections.
+                with session.get(url, stream=True, timeout=(30, 300)) as r:
+                    r.raise_for_status()
+                    with open(filename, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=1 << 20):
+                            f.write(chunk)
+                break  # success
+            except Exception as exc:
+                if attempt == 4:
+                    raise
+                _log.warning(f"  [{i}/{len(granules)}] attempt {attempt + 1} failed ({exc}), retrying...")
+                filename.unlink(missing_ok=True)
         files.append(str(filename))
     return files
 
