@@ -63,7 +63,7 @@ def get_processed_tiles_from_icechunk(config: Config) -> dict[str, str]:
     session = repo.readonly_session("main")
 
     processed = {}
-    for snap in session.ancestry():
+    for snap in repo.ancestry(branch="main"):
         m = PROCESSED_PATTERN.match(snap.message)
         if m:
             tile_id = f"h{m[1]}v{m[2]}"
