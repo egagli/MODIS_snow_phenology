@@ -196,12 +196,18 @@ def main():
         prefix=config.icechunk_prefix,
         sas_token=config.azure_storage_sas_token,
     )
+    repo_config = icechunk.RepositoryConfig.default()
+    repo_config.storage.retries = icechunk.StorageRetriesSettings(
+        max_tries=20,
+        initial_backoff_ms=200,
+        max_backoff_ms=60_000,
+    )
 
     # Read exact store coordinates for this tile's slice.
     # STAC-derived coordinates have float imprecision; we snap to the store's
     # exact values so that region='auto' can match coordinates.
     log.info("Reading store coordinates for tile region...")
-    repo_ro = icechunk.Repository.open(storage)
+    repo_ro = icechunk.Repository.open(storage, config=repo_config)
     session_ro = repo_ro.readonly_session("main")
     ds_store = xr.open_zarr(session_ro.store, zarr_format=3, consolidated=False)
     store_y = ds_store.y[v * 2400 : (v + 1) * 2400].values
@@ -246,13 +252,13 @@ def main():
     # parent snapshot matches the current HEAD.
     commit_message = f"{tile_id}: processed"
     max_attempts = 20
-    repo = icechunk.Repository.open(storage)
+    repo = icechunk.Repository.open(storage, config=repo_config)
     for attempt in range(max_attempts):
         if attempt > 0:
             delay = random.uniform(2, 8) * attempt
             log.warning(f"ConflictError on attempt {attempt}, retrying in {delay:.1f}s...")
             time.sleep(delay)
-            repo = icechunk.Repository.open(storage)
+            repo = icechunk.Repository.open(storage, config=repo_config)
 
         session = repo.writable_session("main")
         log.info(f"Writing {len(pending_writes)} WY(s) to store (attempt {attempt + 1})...")
