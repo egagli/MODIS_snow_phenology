@@ -197,6 +197,7 @@ def main():
         sas_token=config.azure_storage_sas_token,
     )
     repo_config = icechunk.RepositoryConfig.default()
+    repo_config.storage = icechunk.StorageSettings()
     repo_config.storage.retries = icechunk.StorageRetriesSettings(
         max_tries=20,
         initial_backoff_ms=200,
