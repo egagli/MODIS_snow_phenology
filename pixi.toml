@@ -36,6 +36,7 @@ jupyterlab = "*"
 matplotlib = "*"
 ipywidgets = "*"
 contextily = "*"
+folium = "*"
 
 [environments]
 default = { features = ["dev"] }
