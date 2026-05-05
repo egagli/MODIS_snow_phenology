@@ -12,10 +12,8 @@ On failure: exits nonzero; no Icechunk commit (store remains clean)
 import argparse
 import faulthandler
 import logging
-import random
 import signal
 import sys
-import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -255,33 +253,20 @@ def main():
     if skipped:
         log.warning(f"Skipped WYs (no data): {sorted(skipped)}")
 
-    # Write + commit with retry on ConflictError. Parallel matrix jobs all
-    # commit to the same branch; reopen a fresh session each attempt so our
-    # parent snapshot matches the current HEAD.
+    # Write all WYs then commit. ConflictDetector handles concurrent commits
+    # from parallel matrix jobs: since each job writes a unique non-overlapping
+    # tile region, there are never real data conflicts and Icechunk rebases
+    # automatically without needing to re-write any data.
     commit_message = f"{tile_id}: processed"
-    max_attempts = 20
     repo = icechunk.Repository.open(storage, config=repo_config)
-    for attempt in range(max_attempts):
-        if attempt > 0:
-            delay = random.uniform(2, 8) * attempt
-            log.warning(f"ConflictError on attempt {attempt}, retrying in {delay:.1f}s...")
-            time.sleep(delay)
-            repo = icechunk.Repository.open(storage, config=repo_config)
+    session = repo.writable_session("main")
+    log.info(f"Writing {len(pending_writes)} WY(s) to store...")
+    for wy, ds_write in pending_writes:
+        log.info(f"WY{wy}: writing...")
+        ds_write.to_zarr(session.store, region="auto", mode="r+", zarr_format=3)
 
-        session = repo.writable_session("main")
-        log.info(f"Writing {len(pending_writes)} WY(s) to store (attempt {attempt + 1})...")
-        for wy, ds_write in pending_writes:
-            log.info(f"WY{wy}: writing...")
-            ds_write.to_zarr(session.store, region="auto", mode="r+", zarr_format=3)
-
-        try:
-            snapshot_id = session.commit(commit_message)
-            log.info(f"Committed: '{commit_message}' -> {snapshot_id}")
-            break
-        except icechunk.ConflictError as e:
-            log.warning(f"ConflictError: {e}")
-            if attempt == max_attempts - 1:
-                raise
+    snapshot_id = session.commit(commit_message, rebase_with=icechunk.ConflictDetector())
+    log.info(f"Committed: '{commit_message}' -> {snapshot_id}")
 
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     log.info(f"Done. Total time: {elapsed:.1f}s")
