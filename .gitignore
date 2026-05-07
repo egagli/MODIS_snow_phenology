@@ -21,6 +21,9 @@ notebooks/mod10a2_data/
 sas_token.txt
 *.pem
 
+# zarr-layer rendered viz (contains SAS token)
+notebooks/*_ready.html
+
 # OS
 .DS_Store
 
