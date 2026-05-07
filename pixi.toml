@@ -30,6 +30,15 @@ bottleneck = "*"
 tqdm = "*"
 requests = "*"
 pip = "*"
+jupyterlab = "*"
+matplotlib = "*"
+ipywidgets = "*"
+contextily = "*"
+folium = "*"
+
+[pypi-dependencies]
+topozarr = ">=0.0.6"
+xproj = ">=0.2.1"
 
 [feature.dev.dependencies]
 jupyterlab = "*"
