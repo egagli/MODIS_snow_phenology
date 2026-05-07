@@ -7,6 +7,9 @@ dist/
 build/
 .eggs/
 
+# data folder in notebooks folder
+notebooks/mod10a2_data/
+
 # Pixi
 .pixi/
 
