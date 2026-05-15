@@ -5,6 +5,36 @@ declare module '@carbonplan/colormaps' {
   export function useThemedColormap(name: string, options?: ColormapOptions): string[]
 }
 
+declare module '@carbonplan/layouts' {
+  import type React from 'react'
+  export const Sidebar: React.FC<React.PropsWithChildren<{ expanded?: boolean }>>
+  export const SidebarDivider: React.FC<React.PropsWithChildren<Record<string, unknown>>>
+}
+
+declare module '@carbonplan/components' {
+  import type React from 'react'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const Filter: React.FC<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const Slider: React.FC<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const Row: React.FC<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const Column: React.FC<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const Colorbar: React.FC<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const Input: React.FC<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const Spinner: React.FC<any>
+}
+
+declare module '@carbonplan/theme' {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const theme: any
+  export default theme
+}
+
 declare module '@protomaps/basemaps' {
   type Flavor = Record<string, unknown>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
