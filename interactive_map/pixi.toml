@@ -1,0 +1,20 @@
+[workspace]
+name = "modis-snow-phenology-map"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+nodejs = ">=20,<21"
+
+[tasks]
+# Step 1: Install zarr-layer deps + build its dist/ (ignore-scripts skips husky in zarr-layer itself)
+build-zarr-layer.cmd = "npm install --ignore-scripts && npm run build"
+build-zarr-layer.cwd = "../../zarr-layer"
+
+# Step 2: Install app deps — HUSKY=0 tells husky (now installed in zarr-layer/node_modules) to skip hooks
+install.cmd = "HUSKY=0 npm install"
+
+# Dev/build/start
+dev.cmd = "npm run dev"
+build.cmd = "npm run build"
+start.cmd = "npm start"
