@@ -7,8 +7,10 @@ declare module '@carbonplan/colormaps' {
 
 declare module '@carbonplan/layouts' {
   import type React from 'react'
-  export const Sidebar: React.FC<React.PropsWithChildren<{ expanded?: boolean }>>
-  export const SidebarDivider: React.FC<React.PropsWithChildren<Record<string, unknown>>>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const Sidebar: React.FC<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const SidebarDivider: React.FC<any>
 }
 
 declare module '@carbonplan/components' {
