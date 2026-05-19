@@ -1,10 +1,10 @@
-name: Deploy interactive map to GitHub Pages
+name: Deploy map to GitHub Pages
 
 on:
   push:
     branches: [main]
     paths:
-      - 'interactive_map/**'
+      - 'map/**'
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
         with:
           path: MODIS_snow_phenology
 
-      # zarr-layer is a local file: dep at ../../zarr-layer relative to interactive_map/
+      # zarr-layer is a local file: dep at ../../zarr-layer relative to map/
       - uses: actions/checkout@v4
         with:
           repository: carbonplan/zarr-layer
@@ -35,23 +35,23 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: MODIS_snow_phenology/interactive_map/package-lock.json
+          cache-dependency-path: MODIS_snow_phenology/map/package-lock.json
 
       - name: Build zarr-layer
         working-directory: zarr-layer
         run: npm install --ignore-scripts && npm run build
 
       - name: Install map dependencies
-        working-directory: MODIS_snow_phenology/interactive_map
+        working-directory: MODIS_snow_phenology/map
         run: HUSKY=0 npm ci
 
       - name: Build map
-        working-directory: MODIS_snow_phenology/interactive_map
+        working-directory: MODIS_snow_phenology/map
         run: npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: MODIS_snow_phenology/interactive_map/out
+          path: MODIS_snow_phenology/map/out
 
   deploy:
     needs: build

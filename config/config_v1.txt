@@ -1,13 +1,18 @@
-[METADATA]
-config_name = config_v1
-version = v1
+# MODIS snow phenology configuration — v1
+# Credential values set to "ENV" are read from environment variables of the same name.
+# For local use with real credentials, copy this file to config_with_secrets_v1.txt
+# and replace "ENV" with your actual values (that file is gitignored).
 
-[VALUES]
-azure_container = snowmelt
-azure_storage_account = uwcryo
-icechunk_prefix = modis_snow_phenology/modis_snow_phenology_v1
-tile_status_path = processing/tile_data/tile_processing_status.geojson
-wy_start = 2015
-wy_end = 2024
-shard_shape = 1, 2400, 2400
-inner_chunk_shape = 1, 600, 600
+CONFIG_NAME = config_v1
+VERSION = v1
+
+TILE_STATUS_PATH = processing/tile_data/tile_processing_status.geojson
+WY_START = 2015
+WY_END = 2024
+SHARD_SHAPE = 1, 2400, 2400
+INNER_CHUNK_SHAPE = 1, 600, 600
+
+AZURE_STORAGE_ACCOUNT = uwcryo
+AZURE_STORAGE_SAS_TOKEN = ENV
+AZURE_CONTAINER = snowmelt
+ICECHUNK_PREFIX = modis_snow_phenology/modis_snow_phenology_v1

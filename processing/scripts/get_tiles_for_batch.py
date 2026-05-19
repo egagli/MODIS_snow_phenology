@@ -1,10 +1,13 @@
 """
-Get tiles from tile_processing_status.geojson for GitHub Actions matrix processing.
+Get unprocessed land tiles for GitHub Actions matrix processing.
+
+Queries Icechunk commit history to determine which tiles have already been
+processed, then returns the remaining land tiles as a JSON matrix or count.
 
 Usage:
     python get_tiles_for_batch.py --which-tiles unprocessed --output json
-    python get_tiles_for_batch.py --which-tiles unprocessed_and_failed --output count
-    python get_tiles_for_batch.py --config-file config/config_v1.txt --which-tiles unprocessed --output json
+    python get_tiles_for_batch.py --which-tiles unprocessed --output count
+    python get_tiles_for_batch.py --config-file config/config_v1.txt --which-tiles all --output json
 """
 
 import argparse
@@ -13,14 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from modis_snow_phenology.config import Config
-
-VALID_STATUSES = {
-    "unprocessed": ["unprocessed"],
-    "failed": ["failed"],
-    "unprocessed_and_failed": ["unprocessed", "failed"],
-    "all": ["unprocessed", "failed", "processed"],
-}
+from modis_snow_phenology.config import Config, get_processed_tiles_from_icechunk
 
 
 def parse_args():
@@ -28,9 +24,12 @@ def parse_args():
     p.add_argument("--config-file", default="config/config_v1.txt", help="Path to config file")
     p.add_argument(
         "--which-tiles",
-        default="unprocessed_and_failed",
-        choices=list(VALID_STATUSES),
-        help="Which tiles to include",
+        default="unprocessed",
+        choices=["unprocessed", "all"],
+        help=(
+            "'unprocessed': land tiles with no Icechunk commit yet (includes previously failed); "
+            "'all': all land tiles (re-process everything)"
+        ),
     )
     p.add_argument(
         "--output",
@@ -45,8 +44,16 @@ def main():
     args = parse_args()
     config = Config(args.config_file)
 
-    statuses = VALID_STATUSES[args.which_tiles]
-    gdf = config.get_tiles_by_status(statuses)
+    land_gdf = config.get_land_tiles()
+
+    if args.which_tiles == "unprocessed":
+        repo = config.open_icechunk_repo()
+        processed = get_processed_tiles_from_icechunk(repo)
+        gdf = land_gdf[
+            ~land_gdf["tile"].isin(processed)
+        ].copy()
+    else:
+        gdf = land_gdf
 
     if args.output == "count":
         print(len(gdf))

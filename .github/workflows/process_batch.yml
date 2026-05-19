@@ -13,19 +13,17 @@ on:
       which_tiles:
         description: 'Which tiles to process'
         required: false
-        default: 'unprocessed_and_failed'
+        default: 'unprocessed'
         type: choice
         options:
           - unprocessed
-          - failed
-          - unprocessed_and_failed
           - all
 
 env:
   AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 jobs:
@@ -46,9 +44,6 @@ jobs:
 
       - name: Install package
         run: pixi run -e ci pip install -e .
-
-      - name: Print config
-        run: pixi run -e ci python processing/scripts/print_config.py --config-file ${{ inputs.config_file }}
 
       - name: Get tiles for batch processing
         id: get-tiles
@@ -83,7 +78,7 @@ jobs:
       matrix:
         tile: ${{ fromJson(needs.generate-tile-matrix.outputs.matrix) }}
 
-    # Explicit job name enables summarize_processing.py to match jobs to tiles via GH API
+    # Explicit job name enables log identification by tile
     name: process-tile-h${{ matrix.tile.h }}-v${{ matrix.tile.v }}
 
     steps:
@@ -106,55 +101,3 @@ jobs:
             --h ${{ matrix.tile.h }} \
             --v ${{ matrix.tile.v }} \
             --config-file ${{ inputs.config_file }}
-
-  summarize-results:
-    needs: process-tiles
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: prefix-dev/setup-pixi@v0.8.3
-        with:
-          pixi-version: v0.39.0
-          environments: ci
-
-      - name: Install package
-        run: pixi run -e ci pip install -e .
-
-      - name: Update tile processing status
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
-        run: |
-          pixi run -e ci python processing/scripts/summarize_processing.py \
-            --config-file ${{ inputs.config_file }} \
-            --run-id ${{ github.run_id }} \
-            --github-token "${{ secrets.GITHUB_TOKEN }}" \
-            --repo "${{ github.repository }}"
-
-      - name: Commit updated GeoJSON
-        run: |
-          if [[ -n "$(git status --porcelain processing/tile_data/tile_processing_status.geojson)" ]]; then
-            git config --local user.email "action@github.com"
-            git config --local user.name "GitHub Action (summarize-results)"
-            git add processing/tile_data/tile_processing_status.geojson
-            git commit -m "Update tile processing status (run ${{ github.run_id }})"
-
-            for i in {1..3}; do
-              if git pull --rebase origin main && git push; then
-                echo "✅ Pushed updated tile status"
-                break
-              fi
-              echo "⚠️  Push attempt $i/3 failed, retrying in 5s..."
-              sleep 5
-              if [ $i -eq 3 ]; then
-                echo "❌ Failed to push after 3 attempts"
-                exit 1
-              fi
-            done
-          else
-            echo "✅ No changes to tile status GeoJSON"
-          fi

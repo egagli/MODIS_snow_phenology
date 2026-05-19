@@ -12,8 +12,11 @@ On failure: exits nonzero; no Icechunk commit (store remains clean)
 import argparse
 import faulthandler
 import logging
+import os
+import random
 import signal
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -71,11 +74,11 @@ def assign_water_year_coords(da: xr.DataArray, hemisphere: str) -> xr.DataArray:
 
 def process_water_year(
     h: int, v: int, wy: int, config: Config, hemisphere: str
-) -> xr.Dataset | None:
+) -> tuple[xr.Dataset, int] | None:
     """
     Fetch, cloud-fill, and compute snow metrics for a single water year.
     Fetches 1 prior and 1 following water year so bfill/ffill have full context.
-    Returns None if there are too few observations.
+    Returns (metrics_dataset, input_obs) or None if there are too few observations.
     """
     if hemisphere == "northern":
         # NH WY spans Oct(wy-1) – Sep(wy); fetch Oct(wy-2) – Sep(wy+1) for context
@@ -170,9 +173,29 @@ def process_water_year(
         log.warning(f"WY{wy}: only {len(wy_da.time)} observations, skipping")
         return None
 
-    log.info(f"WY{wy}: computing snow metrics ({len(wy_da.time)} obs, RSS={_rss_mb()} MB)")
+    input_obs = len(wy_da.time)
+    log.info(f"WY{wy}: computing snow metrics ({input_obs} obs, RSS={_rss_mb()} MB)")
     metrics = processing.get_max_consec_snow_days_SAD_SDD_one_WY(wy_da)
-    return metrics.expand_dims(water_year=[wy])
+    return metrics.expand_dims(water_year=[wy]), input_obs
+
+
+def _write_step_summary(tile_id, wy_stats, snapshot_id):
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    lines = [
+        f"## Tile {tile_id}",
+        "",
+        "| Water Year | Input obs | Valid pixels | Coverage |",
+        "| ---------- | --------- | ------------ | -------- |",
+    ]
+    for wy, stats in sorted(wy_stats.items()):
+        lines.append(
+            f"| WY{wy} | {stats['input_obs']} | {stats['valid_pixels']:,} | {stats['coverage']:.1f}% |"
+        )
+    lines += ["", f"**Snapshot:** `{snapshot_id}`"]
+    with open(summary_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def main():
@@ -192,14 +215,14 @@ def main():
     tile_id = Config.tile_id(h, v)
     hemisphere = Config.hemisphere_for_v(v)
 
-    log.info(f"Processing tile {tile_id} ({hemisphere} hemisphere) — config: {config.config_name}")
+    log.info(f"Processing tile {tile_id} ({hemisphere} hemisphere) — config: {config.CONFIG_NAME}")
     start = datetime.now(timezone.utc)
 
     storage = icechunk.azure_storage(
-        account=config.azure_storage_account,
-        container=config.azure_container,
-        prefix=config.icechunk_prefix,
-        sas_token=config.azure_storage_sas_token,
+        account=config.AZURE_STORAGE_ACCOUNT,
+        container=config.AZURE_CONTAINER,
+        prefix=config.ICECHUNK_PREFIX,
+        sas_token=config.AZURE_STORAGE_SAS_TOKEN,
     )
     repo_config = icechunk.RepositoryConfig.default()
     repo_config.storage = icechunk.StorageSettings()
@@ -219,14 +242,15 @@ def main():
     store_y = ds_store.y[v * 2400 : (v + 1) * 2400].values
     store_x = ds_store.x[h * 2400 : (h + 1) * 2400].values
 
-    target_wys = np.arange(config.wy_start, config.wy_end + 1)
-    pending_writes = []  # list of (wy, ds_write) — kept in memory for commit retries
+    target_wys = np.arange(config.WY_START, config.WY_END + 1)
+    pending_writes = []  # list of (wy, ds_write, input_obs) — kept in memory for commit retries
     written_wys = []
 
     for wy in target_wys:
-        metrics = process_water_year(h, v, wy, config, hemisphere)
-        if metrics is None:
+        result = process_water_year(h, v, wy, config, hemisphere)
+        if result is None:
             continue
+        metrics, input_obs = result
 
         # Snap tile coordinates to store's exact values
         if not (np.allclose(store_y, metrics.y.values, atol=1.0) and
@@ -243,7 +267,7 @@ def main():
             ds_write[var].attrs.pop("_FillValue", None)
         ds_write = ds_write.chunk({"water_year": 1, "y": 2400, "x": 2400})
 
-        pending_writes.append((wy, ds_write))
+        pending_writes.append((wy, ds_write, input_obs))
         written_wys.append(wy)
 
     if not written_wys:
@@ -253,20 +277,48 @@ def main():
     if skipped:
         log.warning(f"Skipped WYs (no data): {sorted(skipped)}")
 
+    # Build per-WY stats for the commit message.
+    wy_stats = {}
+    for wy, ds_write, input_obs in pending_writes:
+        sad = ds_write["SAD_DOWY"]
+        total = int(sad.size)
+        valid = int(np.sum(~np.isnan(sad.values)))
+        coverage = 100.0 * valid / total if total > 0 else 0.0
+        wy_stats[wy] = {"input_obs": input_obs, "valid_pixels": valid, "coverage": coverage}
+
+    stats_parts = [
+        f"(WY{wy}: input_obs={wy_stats[wy]['input_obs']}, "
+        f"valid_pixels={wy_stats[wy]['valid_pixels']}, "
+        f"coverage={wy_stats[wy]['coverage']:.1f}%)"
+        for wy, _, __ in pending_writes
+    ]
+    commit_message = (
+        f"{tile_id}: processed. "
+        f"Stats: [{', '.join(stats_parts)}] "
+        f"Special note: None"
+    )
+
     # Write all WYs then commit. ConflictDetector handles concurrent commits
     # from parallel matrix jobs: since each job writes a unique non-overlapping
     # tile region, there are never real data conflicts and Icechunk rebases
     # automatically without needing to re-write any data.
-    commit_message = f"{tile_id}: processed"
-    repo = icechunk.Repository.open(storage, config=repo_config)
-    session = repo.writable_session("main")
     log.info(f"Writing {len(pending_writes)} WY(s) to store...")
-    for wy, ds_write in pending_writes:
-        log.info(f"WY{wy}: writing...")
-        ds_write.to_zarr(session.store, region="auto", mode="r+", zarr_format=3)
+    while True:
+        try:
+            repo = icechunk.Repository.open(storage, config=repo_config)
+            session = repo.writable_session("main")
+            for wy, ds_write, _ in pending_writes:
+                log.info(f"WY{wy}: writing...")
+                ds_write.to_zarr(session.store, region="auto", mode="r+", zarr_format=3)
+            snapshot_id = session.commit(commit_message, rebase_with=icechunk.ConflictDetector())
+            log.info(f"Committed: '{commit_message[:80]}...' -> {snapshot_id}")
+            break
+        except Exception as exc:
+            delay = random.uniform(3, 10)
+            log.warning(f"Conflict detected, retrying in {delay:.1f}s: {exc}")
+            time.sleep(delay)
 
-    snapshot_id = session.commit(commit_message, rebase_with=icechunk.ConflictDetector())
-    log.info(f"Committed: '{commit_message}' -> {snapshot_id}")
+    _write_step_summary(tile_id, wy_stats, snapshot_id)
 
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     log.info(f"Done. Total time: {elapsed:.1f}s")

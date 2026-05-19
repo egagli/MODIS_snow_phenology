@@ -18,7 +18,7 @@ notebooks/mod10a2_data/
 
 # Environment / secrets
 .env
-sas_token.txt
+config/config_with_secrets*.txt
 *.pem
 
 # zarr-layer rendered viz (contains SAS token)
