@@ -35,6 +35,7 @@ matplotlib = "*"
 ipywidgets = "*"
 contextily = "*"
 folium = "*"
+obstore = ">=0.9.5,<0.10"
 
 [pypi-dependencies]
 topozarr = ">=0.0.6"
