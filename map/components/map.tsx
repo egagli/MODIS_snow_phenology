@@ -317,10 +317,7 @@ export const Map = () => {
     }
 
     let beforeId: string | undefined
-    try {
-      beforeId = 'landuse_pedestrian'
-      if (!map.getLayer(beforeId)) beforeId = undefined
-    } catch { beforeId = undefined }
+    try { if (map.getLayer('address_label')) beforeId = 'address_label' } catch {}
 
     const layer = new ZarrLayer(options)
     if (cancelled.val) return
