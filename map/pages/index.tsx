@@ -24,7 +24,7 @@ export default function Home() {
         <>
           <Map />
           <Box sx={{ display: ['none', 'none', 'block'] }}>
-            <FloatingCards sidebarWidth={sidebarWidth} />
+            <FloatingCards />
           </Box>
         </>
       )}

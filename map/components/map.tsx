@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Box, Spinner } from 'theme-ui'
 import { useThemedColormap, makeColormap } from '@carbonplan/colormaps'
 import { ZarrLayer, ZarrLayerOptions } from '@carbonplan/zarr-layer'
@@ -64,13 +64,30 @@ const mapTheme = {
 
 let pmtilesRegistered = false
 
+// IDs to skip when toggling basemap fill/background visibility for satellite mode
+const OWN_LAYER_IDS = new Set([
+  'zarr-layer', 'esri-imagery',
+  'tiles-fill', 'tiles-outline', 'tiles-highlight', 'tiles-highlight-outline',
+])
+
+function setBasemapFillVisibility(map: maplibregl.Map, visible: boolean) {
+  const vis = visible ? 'visible' : 'none'
+  map.getStyle()?.layers.forEach((layer) => {
+    if (OWN_LAYER_IDS.has(layer.id)) return
+    if (layer.type === 'fill' || layer.type === 'background') {
+      try { map.setLayoutProperty(layer.id, 'visibility', vis) } catch {}
+    }
+  })
+}
+
 export const Map = () => {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const zarrLayerRef = useRef<InstanceType<typeof ZarrLayer> | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
-  const mapLoadedRef = useRef(false)
-  const tilesLoadedRef = useRef(false)
+
+  // useState (not useRef) so that setting it triggers re-renders and dependent effects
+  const [isMapLoaded, setIsMapLoaded] = useState(false)
 
   const variable = useStore((s) => s.variable)
   const waterYearIndex = useStore((s) => s.waterYearIndex)
@@ -88,7 +105,7 @@ export const Map = () => {
 
   const colormapArray = useThemedColormap(colormap, { format: 'hex' })
 
-  // Map initialization
+  // Map initialization — runs once
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return
 
@@ -141,8 +158,6 @@ export const Map = () => {
     mapRef.current = map
 
     map.on('load', () => {
-      mapLoadedRef.current = true
-
       // Tile processing status overlay
       const emptyFC = { type: 'FeatureCollection' as const, features: [] }
       map.addSource('tiles-status', { type: 'geojson', data: TILES_STATUS_URL })
@@ -166,24 +181,20 @@ export const Map = () => {
       map.addLayer(
         { id: 'tiles-fill', type: 'fill', source: 'tiles-status',
           paint: { 'fill-color': fillColor, 'fill-opacity': 0.25 },
-          layout: { visibility: 'none' } } as any,
-        beforeLabel
+          layout: { visibility: 'none' } } as any, beforeLabel
       )
       map.addLayer(
         { id: 'tiles-outline', type: 'line', source: 'tiles-status',
           paint: { 'line-color': '#64748b', 'line-width': 0.5 },
-          layout: { visibility: 'none' } } as any,
-        beforeLabel
+          layout: { visibility: 'none' } } as any, beforeLabel
       )
       map.addLayer(
         { id: 'tiles-highlight', type: 'fill', source: 'tiles-highlight-source',
-          paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.25 } } as any,
-        beforeLabel
+          paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.25 } } as any, beforeLabel
       )
       map.addLayer(
         { id: 'tiles-highlight-outline', type: 'line', source: 'tiles-highlight-source',
-          paint: { 'line-color': '#ffffff', 'line-width': 3 } } as any,
-        beforeLabel
+          paint: { 'line-color': '#ffffff', 'line-width': 3 } } as any, beforeLabel
       )
 
       const tileClickHandler = (e: maplibregl.MapLayerMouseEvent) => {
@@ -205,15 +216,8 @@ export const Map = () => {
       map.on('mouseenter', 'tiles-fill', cursorOn)
       map.on('mouseleave', 'tiles-fill', cursorOff)
 
-      tilesLoadedRef.current = true
-
-      // Force-apply any toggled state that fired before load
-      const state = useStore.getState()
-      const v = state.showTiles ? 'visible' : 'none'
-      map.setLayoutProperty('tiles-fill', 'visibility', v)
-      map.setLayoutProperty('tiles-outline', 'visibility', v)
-      map.setLayoutProperty('esri-imagery', 'visibility', state.showSatellite ? 'visible' : 'none')
-      try { map.setLayoutProperty('earth', 'visibility', state.showSatellite ? 'none' : 'visible') } catch {}
+      // Signal that the map is ready — this triggers all dependent useEffects
+      setIsMapLoaded(true)
     })
 
     return () => {
@@ -221,43 +225,43 @@ export const Map = () => {
       markerRef.current = null
       map.remove()
       mapRef.current = null
-      mapLoadedRef.current = false
-      tilesLoadedRef.current = false
+      setIsMapLoaded(false)
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Projection toggle
   useEffect(() => {
-    if (!mapRef.current || !mapLoadedRef.current) return
+    if (!mapRef.current || !isMapLoaded) return
     ;(mapRef.current as any).setProjection(
       globeProjection ? { type: 'globe' } : { type: 'mercator' }
     )
-  }, [globeProjection])
+  }, [globeProjection, isMapLoaded])
 
-  // Satellite toggle
+  // Satellite toggle — hide all basemap fill/background layers so they don't mask satellite
   useEffect(() => {
-    if (!mapRef.current || !mapLoadedRef.current) return
+    if (!mapRef.current || !isMapLoaded) return
     const map = mapRef.current
     map.setLayoutProperty('esri-imagery', 'visibility', showSatellite ? 'visible' : 'none')
-    try { map.setLayoutProperty('earth', 'visibility', showSatellite ? 'none' : 'visible') } catch {}
-  }, [showSatellite])
+    setBasemapFillVisibility(map, !showSatellite)
+  }, [showSatellite, isMapLoaded])
 
   // Tiles overlay toggle
   useEffect(() => {
-    if (!mapRef.current || !tilesLoadedRef.current) return
+    if (!mapRef.current || !isMapLoaded) return
+    const map = mapRef.current
     const v = showTiles ? 'visible' : 'none'
-    mapRef.current.setLayoutProperty('tiles-fill', 'visibility', v)
-    mapRef.current.setLayoutProperty('tiles-outline', 'visibility', v)
+    map.setLayoutProperty('tiles-fill', 'visibility', v)
+    map.setLayoutProperty('tiles-outline', 'visibility', v)
     if (!showTiles) {
       setTileClickInfo(null)
-      const hlSrc = mapRef.current.getSource('tiles-highlight-source') as maplibregl.GeoJSONSource | undefined
+      const hlSrc = map.getSource('tiles-highlight-source') as maplibregl.GeoJSONSource | undefined
       hlSrc?.setData({ type: 'FeatureCollection', features: [] })
     }
-  }, [showTiles, setTileClickInfo])
+  }, [showTiles, isMapLoaded, setTileClickInfo])
 
-  // Recreate ZarrLayer when variable changes
+  // Recreate ZarrLayer when variable changes or map first loads
   useEffect(() => {
-    if (!mapRef.current || !mapLoadedRef.current) return
+    if (!mapRef.current || !isMapLoaded) return
     const map = mapRef.current
     let cancelled = false
 
@@ -267,8 +271,6 @@ export const Map = () => {
     }
     markerRef.current?.remove()
     markerRef.current = null
-
-    if (cancelled) return
 
     const state = useStore.getState()
     const options: ZarrLayerOptions = {
@@ -294,10 +296,10 @@ export const Map = () => {
     } catch { beforeId = undefined }
 
     const layer = new ZarrLayer(options)
+    if (cancelled) return
     map.addLayer(layer, beforeId)
     zarrLayerRef.current = layer
 
-    // Point click inspection
     const clickHandler = async (event: maplibregl.MapMouseEvent) => {
       const currentLayer = zarrLayerRef.current
       if (!currentLayer) return
@@ -325,7 +327,7 @@ export const Map = () => {
       try { if (map.getLayer('zarr-layer')) map.removeLayer('zarr-layer') } catch {}
       zarrLayerRef.current = null
     }
-  }, [variable, setLoadingState, setClickInfo])
+  }, [variable, isMapLoaded, setLoadingState, setClickInfo])
 
   // Live updates — no layer recreation
   useEffect(() => {

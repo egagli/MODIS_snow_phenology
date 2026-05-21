@@ -1,6 +1,6 @@
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Box, Flex } from 'theme-ui'
-import { Sidebar as CarbonSidebar, SidebarDivider } from '@carbonplan/layouts'
+import { SidebarDivider } from '@carbonplan/layouts'
 import { Filter, Slider, Row, Column, Colorbar, Input } from '@carbonplan/components'
 import { useThemedColormap } from '@carbonplan/colormaps'
 import {
@@ -16,6 +16,8 @@ const COLORMAPS = [
   'purples', 'pinks', 'greys', 'wind', 'heart', 'sinebow',
   'pinkgreen', 'redteal', 'orangeblue', 'yellowpurple',
 ]
+
+const SIDEBAR_WIDTH = 300
 
 const headingSx = {
   fontFamily: 'heading',
@@ -136,13 +138,7 @@ const SidebarContent = () => {
           <Box sx={subheadingSx}>Year</Box>
         </Column>
         <Column start={2} width={3}>
-          <Box
-            sx={{
-              fontFamily: 'mono',
-              fontSize: [2, 2, 3, 3],
-              color: 'primary',
-            }}
-          >
+          <Box sx={{ fontFamily: 'mono', fontSize: [2, 2, 3, 3], color: 'primary' }}>
             {WATER_YEARS[waterYearIndex]}
           </Box>
         </Column>
@@ -151,9 +147,7 @@ const SidebarContent = () => {
       <Row columns={[4, 4, 4, 4]} sx={{ mt: 1 }}>
         <Column start={1} width={4}>
           <Flex sx={{ gap: 1, alignItems: 'center' }}>
-            <Box sx={{ color: 'secondary', fontSize: 1 }}>
-              {WATER_YEARS[0]}
-            </Box>
+            <Box sx={{ color: 'secondary', fontSize: 1 }}>{WATER_YEARS[0]}</Box>
             <Box sx={{ flex: 1 }}>
               <Slider
                 min={0}
@@ -165,9 +159,7 @@ const SidebarContent = () => {
                 }
               />
             </Box>
-            <Box sx={{ color: 'secondary', fontSize: 1 }}>
-              {WATER_YEARS[WATER_YEARS.length - 1]}
-            </Box>
+            <Box sx={{ color: 'secondary', fontSize: 1 }}>{WATER_YEARS[WATER_YEARS.length - 1]}</Box>
           </Flex>
         </Column>
       </Row>
@@ -266,37 +258,37 @@ const SidebarContent = () => {
 }
 
 export const Sidebar = () => {
-  const sidebarRef = useRef<HTMLDivElement>(null)
   const setSidebarWidth = useStore((s) => s.setSidebarWidth)
 
   useEffect(() => {
-    const updateWidth = () => {
-      if (sidebarRef.current) {
-        const width =
-          sidebarRef.current.parentElement?.parentElement?.offsetWidth ?? 0
-        setSidebarWidth(width)
-      }
-    }
-    updateWidth()
-    window.addEventListener('resize', updateWidth)
-    return () => {
-      window.removeEventListener('resize', updateWidth)
-      setSidebarWidth(0)
-    }
+    setSidebarWidth(SIDEBAR_WIDTH)
+    return () => setSidebarWidth(0)
   }, [setSidebarWidth])
 
   return (
     <>
-      {/* Desktop sidebar */}
-      <Box sx={{ display: ['none', 'none', 'block'] }}>
-        <CarbonSidebar expanded={true} side='left' width={4}>
-          <div ref={sidebarRef}>
-            <SidebarContent />
-          </div>
-        </CarbonSidebar>
+      {/* Desktop: floating left card */}
+      <Box
+        sx={{
+          display: ['none', 'none', 'block'],
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: SIDEBAR_WIDTH,
+          bg: 'rgba(22,25,30,0.96)',
+          borderRight: '1px solid #2e3138',
+          backdropFilter: 'blur(6px)',
+          overflowY: 'auto',
+          zIndex: 10,
+          px: 4,
+          py: 4,
+        }}
+      >
+        <SidebarContent />
       </Box>
 
-      {/* Mobile bottom panel */}
+      {/* Mobile: bottom panel */}
       <Box
         sx={{
           display: ['block', 'block', 'none'],
