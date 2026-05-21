@@ -288,6 +288,19 @@ export const Map = () => {
     }
 
     const state = useStore.getState()
+    // Discard pixels whose value falls outside [clim[0], clim[1]] so that fill
+    // values and out-of-range pixels render as transparent rather than clamping
+    // to the colormap extremes.
+    const varName = state.variable
+    const customFrag = `
+      float rescaled = (${varName} - clim.x) / (clim.y - clim.x);
+      if (rescaled < 0.0 || rescaled > 1.0) {
+        discard;
+      }
+      vec4 c = texture(colormap, vec2(rescaled, 0.5));
+      fragColor = vec4(c.rgb, opacity);
+      fragColor.rgb *= fragColor.a;
+    `
     const options: ZarrLayerOptions = {
       id: 'zarr-layer',
       source: ZARR_URL,
@@ -302,6 +315,7 @@ export const Map = () => {
       bounds: [-20015087, -10007544, 20015087, 10007544],
       latIsAscending: false,
       onLoadingStateChange: setLoadingState,
+      customFrag,
     }
 
     let beforeId: string | undefined
