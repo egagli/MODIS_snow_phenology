@@ -26,6 +26,26 @@ _NEW_MSG_RE = re.compile(r"^(h\d{2}v\d{2}): processed\. Stats:")
 _OLD_MSG_RE = re.compile(r"^(h\d{2}v\d{2}): processed$")
 
 
+def get_processing_status_gdf(repo, tile_status_path: Path) -> gpd.GeoDataFrame:
+    """Return all tiles annotated with their processing status for the web map.
+
+    Status values: 'processed' (committed to Icechunk), 'ocean' (not land),
+    'unprocessed' (land but no commit yet).
+    """
+    processed = get_processed_tiles_from_icechunk(repo)
+    gdf = gpd.read_file(tile_status_path)
+
+    def assign_status(row):
+        if not row["land"]:
+            return "ocean"
+        if row["tile"] in processed:
+            return "processed"
+        return "unprocessed"
+
+    gdf["status"] = gdf.apply(assign_status, axis=1)
+    return gdf
+
+
 def get_processed_tiles_from_icechunk(repo) -> set[str]:
     """Return the set of tile_ids already committed to the Icechunk store.
 

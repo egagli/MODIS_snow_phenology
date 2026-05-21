@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'map/**'
+      - 'modis_snow_phenology/**'
+      - 'processing/tile_data/tile_processing_status.geojson'
   workflow_dispatch:
 
 permissions:
@@ -31,6 +33,20 @@ jobs:
           repository: carbonplan/zarr-layer
           path: zarr-layer
 
+      # --- Python: generate tiles-status.geojson from Icechunk history -------
+      - uses: prefix-dev/setup-pixi@v0.8.3
+        with:
+          pixi-version: v0.39.0
+          environments: ci
+          manifest-path: MODIS_snow_phenology/pixi.toml
+
+      - name: Generate tiles status GeoJSON
+        working-directory: MODIS_snow_phenology
+        env:
+          AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
+        run: pixi run -e ci python map/generate_tiles_status_geojson.py
+
+      # --- Node: build Next.js static export ----------------------------------
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

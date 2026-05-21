@@ -2,6 +2,7 @@ import React from 'react'
 import { Box } from 'theme-ui'
 import { Map } from '../components/map'
 import { Sidebar } from '../components/sidebar'
+import { FloatingCards } from '../components/floating-cards'
 import { useStore } from '../lib/store'
 
 export default function Home() {
@@ -19,7 +20,14 @@ export default function Home() {
       }}
     >
       <Sidebar />
-      {sidebarWidth !== null && <Map />}
+      {sidebarWidth !== null && (
+        <>
+          <Map />
+          <Box sx={{ display: ['none', 'none', 'block'] }}>
+            <FloatingCards sidebarWidth={sidebarWidth} />
+          </Box>
+        </>
+      )}
     </Box>
   )
 }

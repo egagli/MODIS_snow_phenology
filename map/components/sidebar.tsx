@@ -10,6 +10,13 @@ import {
   type Variable,
 } from '../lib/store'
 
+const COLORMAPS = [
+  'rainbow', 'fire', 'earth', 'water', 'warm', 'cool',
+  'reds', 'oranges', 'yellows', 'greens', 'teals', 'blues',
+  'purples', 'pinks', 'greys', 'wind', 'heart', 'sinebow',
+  'pinkgreen', 'redteal', 'orangeblue', 'yellowpurple',
+]
+
 const headingSx = {
   fontFamily: 'heading',
   letterSpacing: 'smallcaps',
@@ -37,12 +44,11 @@ const SidebarContent = () => {
   const opacity = useStore((s) => s.opacity)
   const clim = useStore((s) => s.clim)
   const colormap = useStore((s) => s.colormap)
-  const globeProjection = useStore((s) => s.globeProjection)
   const setVariable = useStore((s) => s.setVariable)
   const setWaterYearIndex = useStore((s) => s.setWaterYearIndex)
   const setOpacity = useStore((s) => s.setOpacity)
   const setClim = useStore((s) => s.setClim)
-  const setGlobeProjection = useStore((s) => s.setGlobeProjection)
+  const setColormap = useStore((s) => s.setColormap)
 
   const themedColormap = useThemedColormap(colormap)
   const [climInputs, setClimInputs] = useState<[string, string]>([
@@ -172,6 +178,39 @@ const SidebarContent = () => {
 
       <Row columns={[4, 4, 4, 4]} sx={{ mt: 2, alignItems: 'baseline' }}>
         <Column start={1} width={1}>
+          <Box sx={subheadingSx}>Colormap</Box>
+        </Column>
+        <Column start={2} width={3}>
+          <Box
+            as='select'
+            value={colormap}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setColormap(e.target.value)}
+            sx={{
+              width: '100%',
+              bg: 'background',
+              color: 'primary',
+              border: '1px solid',
+              borderColor: 'muted',
+              borderRadius: '4px',
+              fontSize: 1,
+              py: 1,
+              px: 2,
+              cursor: 'pointer',
+              fontFamily: 'mono',
+            }}
+          >
+            {COLORMAPS.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </Box>
+          <Box sx={{ mt: 1 }}>
+            <Colorbar width='100%' colormap={themedColormap} horizontal />
+          </Box>
+        </Column>
+      </Row>
+
+      <Row columns={[4, 4, 4, 4]} sx={{ mt: 2, alignItems: 'baseline' }}>
+        <Column start={1} width={1}>
           <Box sx={subheadingSx}>Range</Box>
         </Column>
         <Column start={2} width={3}>
@@ -222,25 +261,6 @@ const SidebarContent = () => {
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setOpacity(parseFloat(e.target.value))
             }
-          />
-        </Column>
-      </Row>
-
-      <SidebarDivider sx={{ my: 3 }} />
-
-      <Box sx={headingSx}>Map</Box>
-
-      <Row columns={[4, 4, 4, 4]} sx={{ mt: 2, alignItems: 'baseline' }}>
-        <Column start={1} width={1}>
-          <Box sx={subheadingSx}>Projection</Box>
-        </Column>
-        <Column start={2} width={3}>
-          <Filter
-            values={{ globe: globeProjection, mercator: !globeProjection }}
-            setValues={(obj: Record<string, boolean>) => {
-              if (obj.globe) setGlobeProjection(true)
-              if (obj.mercator) setGlobeProjection(false)
-            }}
           />
         </Column>
       </Row>

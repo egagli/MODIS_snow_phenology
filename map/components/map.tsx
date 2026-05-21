@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Box, Spinner } from 'theme-ui'
 import { useThemedColormap, makeColormap } from '@carbonplan/colormaps'
 import { ZarrLayer, ZarrLayerOptions } from '@carbonplan/zarr-layer'
@@ -8,10 +8,25 @@ import { Protocol } from 'pmtiles'
 import {
   useStore,
   ZARR_URL,
+  type TileClickInfo,
 } from '../lib/store'
 
 const MODIS_SINUSOIDAL_PROJ4 =
   '+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +a=6371007.181 +b=6371007.181 +units=m +no_defs'
+
+const TILES_STATUS_URL =
+  process.env.NODE_ENV === 'production'
+    ? '/MODIS_snow_phenology/tiles-status.geojson'
+    : '/tiles-status.geojson'
+
+const ACCENT = '#1dbd8f'
+
+const TILE_COLORS = {
+  processed:   '#22c55e',
+  unprocessed: '#ef4444',
+  ocean:       '#3b82f6',
+  unknown:     '#94a3b8',
+}
 
 const backgroundColor = '#1b1e23'
 const mapTheme = {
@@ -47,11 +62,15 @@ const mapTheme = {
   italic: 'Relative Pro Book',
 }
 
+let pmtilesRegistered = false
+
 export const Map = () => {
   const mapContainer = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
   const zarrLayerRef = useRef<InstanceType<typeof ZarrLayer> | null>(null)
-  const [map, setMap] = useState<maplibregl.Map | null>(null)
-  const [isMapLoaded, setIsMapLoaded] = useState(false)
+  const markerRef = useRef<maplibregl.Marker | null>(null)
+  const mapLoadedRef = useRef(false)
+  const tilesLoadedRef = useRef(false)
 
   const variable = useStore((s) => s.variable)
   const waterYearIndex = useStore((s) => s.waterYearIndex)
@@ -61,17 +80,34 @@ export const Map = () => {
   const globeProjection = useStore((s) => s.globeProjection)
   const sidebarWidth = useStore((s) => s.sidebarWidth)
   const loadingState = useStore((s) => s.loadingState)
+  const showSatellite = useStore((s) => s.showSatellite)
+  const showTiles = useStore((s) => s.showTiles)
   const setLoadingState = useStore((s) => s.setLoadingState)
+  const setClickInfo = useStore((s) => s.setClickInfo)
+  const setTileClickInfo = useStore((s) => s.setTileClickInfo)
 
   const colormapArray = useThemedColormap(colormap, { format: 'hex' })
 
+  // Map initialization
   useEffect(() => {
-    if (!mapContainer.current) return
+    if (!mapContainer.current || mapRef.current) return
 
-    const protocol = new Protocol()
-    maplibregl.addProtocol('pmtiles', protocol.tile)
+    if (!pmtilesRegistered) {
+      const protocol = new Protocol()
+      maplibregl.addProtocol('pmtiles', protocol.tile)
+      pmtilesRegistered = true
+    }
 
-    const newMap = new maplibregl.Map({
+    const pmLayers = layers('protomaps', mapTheme as any, { lang: 'en' })
+    const satLayer = {
+      id: 'esri-imagery',
+      type: 'raster' as const,
+      source: 'esri-imagery',
+      layout: { visibility: 'none' as const },
+    }
+    const styleLayers = [pmLayers[0], satLayer, ...pmLayers.slice(1)]
+
+    const map = new maplibregl.Map({
       container: mapContainer.current,
       style: {
         projection: { type: 'globe' } as any,
@@ -85,112 +121,226 @@ export const Map = () => {
             attribution:
               '<a href="https://overturemaps.org/">Overture Maps</a>, <a href="https://protomaps.com">Protomaps</a>, © <a href="https://openstreetmap.org">OpenStreetMap</a>',
           },
+          'esri-imagery': {
+            type: 'raster',
+            tiles: [
+              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            ],
+            tileSize: 256,
+            maxzoom: 19,
+            attribution:
+              'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+          },
         },
-        layers: layers('protomaps', mapTheme as any, { lang: 'en' }),
+        layers: styleLayers,
       },
       center: [0, 20],
       zoom: window.innerWidth < 640 ? 1.2 : 2.4,
     })
 
-    newMap.on('load', () => {
-      setMap(newMap)
-      setIsMapLoaded(true)
+    mapRef.current = map
+
+    map.on('load', () => {
+      mapLoadedRef.current = true
+
+      // Tile processing status overlay
+      const emptyFC = { type: 'FeatureCollection' as const, features: [] }
+      map.addSource('tiles-status', { type: 'geojson', data: TILES_STATUS_URL })
+      map.addSource('tiles-highlight-source', { type: 'geojson', data: emptyFC })
+
+      const fillColor: maplibregl.ExpressionSpecification = [
+        'case',
+        ['==', ['get', 'status'], 'processed'],   TILE_COLORS.processed,
+        ['==', ['get', 'status'], 'unprocessed'],  TILE_COLORS.unprocessed,
+        ['==', ['get', 'status'], 'ocean'],        TILE_COLORS.ocean,
+        ['==', ['get', 'land'], false],            TILE_COLORS.ocean,
+        TILE_COLORS.unknown,
+      ]
+
+      const beforeLabel = (() => {
+        try { if (map.getLayer('address_label')) return 'address_label' } catch {}
+        try { if (map.getLayer('landuse_pedestrian')) return 'landuse_pedestrian' } catch {}
+        return undefined
+      })()
+
+      map.addLayer(
+        { id: 'tiles-fill', type: 'fill', source: 'tiles-status',
+          paint: { 'fill-color': fillColor, 'fill-opacity': 0.25 },
+          layout: { visibility: 'none' } } as any,
+        beforeLabel
+      )
+      map.addLayer(
+        { id: 'tiles-outline', type: 'line', source: 'tiles-status',
+          paint: { 'line-color': '#64748b', 'line-width': 0.5 },
+          layout: { visibility: 'none' } } as any,
+        beforeLabel
+      )
+      map.addLayer(
+        { id: 'tiles-highlight', type: 'fill', source: 'tiles-highlight-source',
+          paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.25 } } as any,
+        beforeLabel
+      )
+      map.addLayer(
+        { id: 'tiles-highlight-outline', type: 'line', source: 'tiles-highlight-source',
+          paint: { 'line-color': '#ffffff', 'line-width': 3 } } as any,
+        beforeLabel
+      )
+
+      const tileClickHandler = (e: maplibregl.MapLayerMouseEvent) => {
+        const feature = e.features?.[0]
+        if (!feature) return
+        const props = feature.properties as Record<string, unknown>
+        const status = (props.status as string) ?? (props.land === false ? 'ocean' : 'unknown')
+        setTileClickInfo({ ...props, status } as TileClickInfo)
+        const hlSrc = map.getSource('tiles-highlight-source') as maplibregl.GeoJSONSource | undefined
+        hlSrc?.setData({
+          type: 'FeatureCollection',
+          features: [{ type: 'Feature', geometry: feature.geometry, properties: {} }],
+        })
+      }
+      const cursorOn  = () => { map.getCanvas().style.cursor = 'pointer' }
+      const cursorOff = () => { map.getCanvas().style.cursor = '' }
+
+      map.on('click', 'tiles-fill', tileClickHandler)
+      map.on('mouseenter', 'tiles-fill', cursorOn)
+      map.on('mouseleave', 'tiles-fill', cursorOff)
+
+      tilesLoadedRef.current = true
+
+      // Force-apply any toggled state that fired before load
+      const state = useStore.getState()
+      const v = state.showTiles ? 'visible' : 'none'
+      map.setLayoutProperty('tiles-fill', 'visibility', v)
+      map.setLayoutProperty('tiles-outline', 'visibility', v)
+      map.setLayoutProperty('esri-imagery', 'visibility', state.showSatellite ? 'visible' : 'none')
+      try { map.setLayoutProperty('earth', 'visibility', state.showSatellite ? 'none' : 'visible') } catch {}
     })
 
     return () => {
-      try {
-        newMap.remove()
-      } catch {}
-      setMap(null)
-      setIsMapLoaded(false)
+      markerRef.current?.remove()
+      markerRef.current = null
+      map.remove()
+      mapRef.current = null
+      mapLoadedRef.current = false
+      tilesLoadedRef.current = false
     }
   }, [])
 
+  // Projection toggle
   useEffect(() => {
-    if (!map || !isMapLoaded) return
-    ;(map as any).setProjection(
+    if (!mapRef.current || !mapLoadedRef.current) return
+    ;(mapRef.current as any).setProjection(
       globeProjection ? { type: 'globe' } : { type: 'mercator' }
     )
-  }, [map, isMapLoaded, globeProjection])
+  }, [globeProjection])
 
-  // Recreate ZarrLayer when the variable changes (different data array)
+  // Satellite toggle
   useEffect(() => {
-    if (!map || !isMapLoaded) return
+    if (!mapRef.current || !mapLoadedRef.current) return
+    const map = mapRef.current
+    map.setLayoutProperty('esri-imagery', 'visibility', showSatellite ? 'visible' : 'none')
+    try { map.setLayoutProperty('earth', 'visibility', showSatellite ? 'none' : 'visible') } catch {}
+  }, [showSatellite])
+
+  // Tiles overlay toggle
+  useEffect(() => {
+    if (!mapRef.current || !tilesLoadedRef.current) return
+    const v = showTiles ? 'visible' : 'none'
+    mapRef.current.setLayoutProperty('tiles-fill', 'visibility', v)
+    mapRef.current.setLayoutProperty('tiles-outline', 'visibility', v)
+    if (!showTiles) {
+      setTileClickInfo(null)
+      const hlSrc = mapRef.current.getSource('tiles-highlight-source') as maplibregl.GeoJSONSource | undefined
+      hlSrc?.setData({ type: 'FeatureCollection', features: [] })
+    }
+  }, [showTiles, setTileClickInfo])
+
+  // Recreate ZarrLayer when variable changes
+  useEffect(() => {
+    if (!mapRef.current || !mapLoadedRef.current) return
+    const map = mapRef.current
     let cancelled = false
 
     if (zarrLayerRef.current) {
-      try {
-        if (map.getLayer('zarr-layer')) map.removeLayer('zarr-layer')
-      } catch {}
+      try { if (map.getLayer('zarr-layer')) map.removeLayer('zarr-layer') } catch {}
       zarrLayerRef.current = null
     }
+    markerRef.current?.remove()
+    markerRef.current = null
 
-    const createLayer = () => {
-      if (cancelled) return
+    if (cancelled) return
 
-      const state = useStore.getState()
-      const options: ZarrLayerOptions = {
-        id: 'zarr-layer',
-        source: ZARR_URL,
-        variable: state.variable,
-        clim: state.clim,
-        colormap: makeColormap(state.colormap, { format: 'hex' }),
-        opacity: state.opacity,
-        selector: { water_year: { selected: state.waterYearIndex, type: 'index' } },
-        zarrVersion: 3,
-        fillValue: -32768,
-        proj4: MODIS_SINUSOIDAL_PROJ4,
-        // Bounds in MODIS sinusoidal meters: ±πR × ±πR/2 where R=6371007.181
-        bounds: [-20015087, -10007544, 20015087, 10007544],
-        latIsAscending: false,
-        onLoadingStateChange: setLoadingState,
-      }
-
-      if (cancelled) return
-
-      const layer = new ZarrLayer(options)
-      let beforeId: string | undefined
-      try {
-        beforeId = 'landuse_pedestrian'
-        if (!map.getLayer(beforeId)) beforeId = undefined
-      } catch {
-        beforeId = undefined
-      }
-      map.addLayer(layer, beforeId)
-      zarrLayerRef.current = layer
+    const state = useStore.getState()
+    const options: ZarrLayerOptions = {
+      id: 'zarr-layer',
+      source: ZARR_URL,
+      variable: state.variable,
+      clim: state.clim,
+      colormap: makeColormap(state.colormap, { format: 'hex' }),
+      opacity: state.opacity,
+      selector: { water_year: { selected: state.waterYearIndex, type: 'index' } },
+      zarrVersion: 3,
+      fillValue: -32768,
+      proj4: MODIS_SINUSOIDAL_PROJ4,
+      bounds: [-20015087, -10007544, 20015087, 10007544],
+      latIsAscending: false,
+      onLoadingStateChange: setLoadingState,
     }
 
+    let beforeId: string | undefined
     try {
-      createLayer()
-    } catch (err) {
-      console.error('ZarrLayer creation failed:', err)
+      beforeId = 'landuse_pedestrian'
+      if (!map.getLayer(beforeId)) beforeId = undefined
+    } catch { beforeId = undefined }
+
+    const layer = new ZarrLayer(options)
+    map.addLayer(layer, beforeId)
+    zarrLayerRef.current = layer
+
+    // Point click inspection
+    const clickHandler = async (event: maplibregl.MapMouseEvent) => {
+      const currentLayer = zarrLayerRef.current
+      if (!currentLayer) return
+      const { lng, lat } = event.lngLat
+      markerRef.current?.remove()
+      markerRef.current = new maplibregl.Marker({ color: ACCENT })
+        .setLngLat([lng, lat])
+        .addTo(map)
+      const currentVariable = useStore.getState().variable
+      setClickInfo({ lng, lat, status: 'querying', value: null })
+      const result = await currentLayer.queryData({ type: 'Point', coordinates: [lng, lat] })
+      const vals = result?.[currentVariable]
+      const raw = Array.isArray(vals) ? vals[0] : null
+      setClickInfo({
+        lng, lat, status: 'done',
+        value: typeof raw === 'number' && !isNaN(raw) ? raw : null,
+      })
     }
+
+    map.on('click', clickHandler)
 
     return () => {
       cancelled = true
-      if (zarrLayerRef.current) {
-        try {
-          if (map.getLayer('zarr-layer')) map.removeLayer('zarr-layer')
-        } catch {}
-        zarrLayerRef.current = null
-      }
+      map.off('click', clickHandler)
+      try { if (map.getLayer('zarr-layer')) map.removeLayer('zarr-layer') } catch {}
+      zarrLayerRef.current = null
     }
-  }, [map, isMapLoaded, variable, setLoadingState])
+  }, [variable, setLoadingState, setClickInfo])
 
-  // Update layer properties without recreating (water year, opacity, clim, colormap)
+  // Live updates — no layer recreation
   useEffect(() => {
     const layer = zarrLayerRef.current
-    if (!layer || !map || !isMapLoaded) return
-
+    if (!layer) return
     layer.setOpacity(opacity)
     layer.setClim(clim)
     layer.setColormap(colormapArray)
     layer.setSelector({ water_year: { selected: waterYearIndex, type: 'index' } })
-  }, [map, isMapLoaded, opacity, clim, colormapArray, waterYearIndex])
+  }, [opacity, clim, colormapArray, waterYearIndex])
 
+  // Resize map when sidebar width changes
   useEffect(() => {
-    if (map) map.resize()
-  }, [map, sidebarWidth])
+    if (mapRef.current) mapRef.current.resize()
+  }, [sidebarWidth])
 
   return (
     <>

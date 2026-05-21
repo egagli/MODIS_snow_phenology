@@ -34,6 +34,19 @@ export const WATER_YEARS = [
 export const ZARR_URL =
   'https://uwcryo.blob.core.windows.net/snowmelt/modis_snow_phenology/modis_snow_phenology_multiscale_v1'
 
+export type ClickInfo = {
+  lng: number
+  lat: number
+  status: 'querying' | 'done'
+  value: number | null
+}
+
+export type TileClickInfo = Record<string, unknown> & {
+  tile: string
+  status: string
+  land: boolean
+}
+
 interface AppState {
   variable: Variable
   waterYearIndex: number
@@ -43,6 +56,10 @@ interface AppState {
   globeProjection: boolean
   loadingState: LoadingState
   sidebarWidth: number | null
+  showSatellite: boolean
+  showTiles: boolean
+  clickInfo: ClickInfo | null
+  tileClickInfo: TileClickInfo | null
   setVariable: (v: Variable) => void
   setWaterYearIndex: (i: number) => void
   setOpacity: (o: number) => void
@@ -51,6 +68,10 @@ interface AppState {
   setGlobeProjection: (g: boolean) => void
   setLoadingState: (s: LoadingState) => void
   setSidebarWidth: (w: number | null) => void
+  setShowSatellite: (v: boolean) => void
+  setShowTiles: (v: boolean) => void
+  setClickInfo: (info: ClickInfo | null) => void
+  setTileClickInfo: (info: TileClickInfo | null) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -62,11 +83,16 @@ export const useStore = create<AppState>((set) => ({
   globeProjection: true,
   loadingState: { loading: false, metadata: false, chunks: false },
   sidebarWidth: null,
+  showSatellite: false,
+  showTiles: false,
+  clickInfo: null,
+  tileClickInfo: null,
   setVariable: (variable) =>
     set({
       variable,
       clim: VARIABLE_CONFIGS[variable].clim,
       colormap: VARIABLE_CONFIGS[variable].colormap,
+      clickInfo: null,
     }),
   setWaterYearIndex: (waterYearIndex) => set({ waterYearIndex }),
   setOpacity: (opacity) => set({ opacity }),
@@ -75,4 +101,8 @@ export const useStore = create<AppState>((set) => ({
   setGlobeProjection: (globeProjection) => set({ globeProjection }),
   setLoadingState: (loadingState) => set({ loadingState }),
   setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
+  setShowSatellite: (showSatellite) => set({ showSatellite }),
+  setShowTiles: (showTiles) => set({ showTiles }),
+  setClickInfo: (clickInfo) => set({ clickInfo }),
+  setTileClickInfo: (tileClickInfo) => set({ tileClickInfo }),
 }))
