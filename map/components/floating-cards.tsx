@@ -219,7 +219,7 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
             <span style={{ color: DIM, fontSize: 14, flexShrink: 0 }}>{varLabel}</span>
             <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 700, textAlign: 'right',
               color: clickInfo.status === 'querying' ? DIM
-                : clickInfo.value === null ? 'transparent'
+                : clickInfo.value === null ? DIM
                 : ACCENT }}>
               {clickInfo.status === 'querying'
                 ? 'Querying…'
