@@ -288,6 +288,16 @@ export const Map = () => {
     }
 
     const state = useStore.getState()
+    // customFrag forces the named-band shader path, which correctly runs
+    // normalizeDataForTexture (fill -32768 → NaN → discard). Without it,
+    // the standard tex path skips that conversion and fill pixels render grey.
+    const varName = state.variable
+    const customFrag = `
+      float rescaled = (${varName} - clim.x) / (clim.y - clim.x);
+      vec4 c = texture(colormap, vec2(rescaled, 0.5));
+      fragColor = vec4(c.rgb, opacity);
+      fragColor.rgb *= fragColor.a;
+    `
     const options: ZarrLayerOptions = {
       id: 'zarr-layer',
       source: ZARR_URL,
@@ -302,6 +312,7 @@ export const Map = () => {
       bounds: [-20015087, -10007544, 20015087, 10007544],
       latIsAscending: false,
       onLoadingStateChange: setLoadingState,
+      customFrag,
     }
 
     let beforeId: string | undefined
