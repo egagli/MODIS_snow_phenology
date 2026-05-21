@@ -293,6 +293,7 @@ export const Map = () => {
     // the standard tex path skips that conversion and fill pixels render grey.
     const varName = state.variable
     const customFrag = `
+      if (${varName} != ${varName} || ${varName} < -100.0) { discard; }
       float rescaled = (${varName} - clim.x) / (clim.y - clim.x);
       vec4 c = texture(colormap, vec2(rescaled, 0.5));
       fragColor = vec4(c.rgb, opacity);

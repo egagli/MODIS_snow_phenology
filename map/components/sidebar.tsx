@@ -141,20 +141,29 @@ const SidebarContent = () => {
           Water Year —{' '}
           <span style={{ color: TEXT, fontWeight: 700 }}>{WATER_YEARS[waterYearIndex]}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, color: DIM }}>{WATER_YEARS[0]}</span>
-          <div style={{ flex: 1 }}>
-            <Slider
-              min={0}
-              max={WATER_YEARS.length - 1}
-              step={1}
-              value={waterYearIndex}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setWaterYearIndex(parseInt(e.target.value))
-              }
-            />
-          </div>
-          <span style={{ fontSize: 11, color: DIM }}>{WATER_YEARS[WATER_YEARS.length - 1]}</span>
+        <Slider
+          min={0}
+          max={WATER_YEARS.length - 1}
+          step={1}
+          value={waterYearIndex}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            setWaterYearIndex(parseInt(e.target.value))
+          }
+        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+          {WATER_YEARS.map((year, i) => (
+            <button
+              key={year}
+              onClick={() => setWaterYearIndex(i)}
+              style={{
+                background: 'none', border: 'none', padding: 0, margin: 0,
+                fontSize: 9, lineHeight: 1, cursor: 'pointer', fontFamily: 'monospace',
+                color: i === waterYearIndex ? ACCENT : DIM,
+              }}
+            >
+              {year}
+            </button>
+          ))}
         </div>
       </div>
 
