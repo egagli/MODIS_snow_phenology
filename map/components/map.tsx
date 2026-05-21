@@ -323,6 +323,11 @@ export const Map = () => {
           if (useStore.getState().variable === varName) setLoadingState(ls)
         },
         customFrag,
+        // Inactive layers are suppressed from the render/chunk-loading loop via
+        // maxzoom:-1 so only the active variable fetches tile data. queryData()
+        // bypasses this check and still works because activeLevel is set during
+        // the one-time _onAddAsync initialization regardless of zoom range.
+        maxzoom: isActive ? Infinity : -1,
       }
       let beforeId: string | undefined
       try { if (map.getLayer('address_label')) beforeId = 'address_label' } catch {}
@@ -356,7 +361,13 @@ export const Map = () => {
   useEffect(() => {
     if (!isMapLoaded) return
     ALL_VARIABLES.forEach((v) => {
-      zarrLayersRef.current[v]?.setOpacity(v === variable ? opacity : 0)
+      const layer = zarrLayersRef.current[v]
+      if (!layer) return
+      const active = v === variable
+      // Toggle chunk-loading: inactive layers sit at maxzoom:-1 so prerender
+      // never calls mode.update(). Active layer uses Infinity (library default).
+      ;(layer as any).maxZoom = active ? Infinity : -1
+      layer.setOpacity(active ? opacity : 0)
     })
     if (lastClickRef.current) requeryAllVariables({ val: false })
   }, [variable, isMapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
