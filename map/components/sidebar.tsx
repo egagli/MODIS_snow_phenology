@@ -181,28 +181,25 @@ const SidebarContent = () => {
           <Box sx={subheadingSx}>Colormap</Box>
         </Column>
         <Column start={2} width={3}>
-          <Box
-            as='select'
+          <select
             value={colormap}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setColormap(e.target.value)}
-            sx={{
+            onChange={(e) => setColormap(e.target.value)}
+            style={{
               width: '100%',
-              bg: 'background',
-              color: 'primary',
-              border: '1px solid',
-              borderColor: 'muted',
+              background: 'var(--theme-ui-colors-background, #1b1e23)',
+              color: 'var(--theme-ui-colors-primary, #d0d0d0)',
+              border: '1px solid var(--theme-ui-colors-muted, #2e3138)',
               borderRadius: '4px',
-              fontSize: 1,
-              py: 1,
-              px: 2,
+              fontSize: 12,
+              padding: '4px 8px',
               cursor: 'pointer',
-              fontFamily: 'mono',
+              fontFamily: 'monospace',
             }}
           >
             {COLORMAPS.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
-          </Box>
+          </select>
           <Box sx={{ mt: 1 }}>
             <Colorbar width='100%' colormap={themedColormap} horizontal />
           </Box>
