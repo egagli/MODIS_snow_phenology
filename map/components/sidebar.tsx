@@ -17,7 +17,7 @@ const COLORMAPS = [
   'pinkgreen', 'redteal', 'orangeblue', 'yellowpurple',
 ]
 
-const SIDEBAR_WIDTH = 300
+const SIDEBAR_WIDTH = 340
 
 const headingSx = {
   fontFamily: 'heading',
@@ -97,9 +97,19 @@ const SidebarContent = () => {
       >
         MODIS Snow Phenology
       </Box>
-      <Box sx={{ color: 'secondary', fontSize: 1, mb: 2 }}>
+      <Box sx={{ color: 'secondary', fontSize: 1, mb: 1 }}>
         Global snow appearance, disappearance, and duration derived from MODIS
-        MOD10A2 (2015–2024)
+        MOD10A2 (2015–2024).
+      </Box>
+      <Box sx={{ fontSize: 1, mb: 2 }}>
+        <a
+          href='https://github.com/egagli/MODIS_snow_phenology'
+          target='_blank'
+          rel='noopener noreferrer'
+          style={{ color: '#1dbd8f', textDecoration: 'none' }}
+        >
+          egagli/MODIS_snow_phenology ↗
+        </a>
       </Box>
 
       <SidebarDivider sx={{ my: 3 }} />
@@ -261,7 +271,7 @@ export const Sidebar = () => {
   const setSidebarWidth = useStore((s) => s.setSidebarWidth)
 
   useEffect(() => {
-    setSidebarWidth(SIDEBAR_WIDTH)
+    setSidebarWidth(SIDEBAR_WIDTH + 32)
     return () => setSidebarWidth(0)
   }, [setSidebarWidth])
 
@@ -272,12 +282,13 @@ export const Sidebar = () => {
         sx={{
           display: ['none', 'none', 'block'],
           position: 'absolute',
-          top: 0,
-          left: 0,
-          bottom: 0,
+          top: 16,
+          left: 16,
           width: SIDEBAR_WIDTH,
+          maxHeight: 'calc(100vh - 32px)',
           bg: 'rgba(22,25,30,0.96)',
-          borderRight: '1px solid #2e3138',
+          border: '1px solid #2e3138',
+          borderRadius: 8,
           backdropFilter: 'blur(6px)',
           overflowY: 'auto',
           zIndex: 10,

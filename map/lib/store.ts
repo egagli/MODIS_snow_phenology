@@ -92,7 +92,6 @@ export const useStore = create<AppState>((set) => ({
       variable,
       clim: VARIABLE_CONFIGS[variable].clim,
       colormap: VARIABLE_CONFIGS[variable].colormap,
-      clickInfo: null,
     }),
   setWaterYearIndex: (waterYearIndex) => set({ waterYearIndex }),
   setOpacity: (opacity) => set({ opacity }),

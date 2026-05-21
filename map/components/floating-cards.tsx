@@ -75,7 +75,7 @@ function dowyToDate(dowy: number, waterYear: number): string {
 }
 
 function formatValue(value: number | null, variable: Variable, waterYear: number): string {
-  if (value === null) return '—'
+  if (value === null) return 'No data'
   if (variable === 'max_consec_snow_days') {
     return `${Math.round(value)} days`
   }
@@ -202,22 +202,22 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
       <div style={sectionLabelStyle}>Point Query</div>
       {clickInfo ? (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ color: DIM }}>Latitude</span>
-            <span style={{ fontFamily: 'monospace' }}>{clickInfo.lat.toFixed(4)}°</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+            <span style={{ color: DIM, fontSize: 13 }}>Latitude</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{clickInfo.lat.toFixed(4)}°</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ color: DIM }}>Longitude</span>
-            <span style={{ fontFamily: 'monospace' }}>{clickInfo.lng.toFixed(4)}°</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+            <span style={{ color: DIM, fontSize: 13 }}>Longitude</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{clickInfo.lng.toFixed(4)}°</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ color: DIM }}>Water Year</span>
-            <span style={{ fontFamily: 'monospace' }}>{waterYear}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+            <span style={{ color: DIM, fontSize: 13 }}>Water Year</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{waterYear}</span>
           </div>
-          <div style={{ borderTop: `1px solid ${BORDER}`, margin: '8px 0' }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: DIM }}>{varLabel}</span>
-            <span style={{ fontFamily: 'monospace', color: ACCENT }}>
+          <div style={{ borderTop: `1px solid ${BORDER}`, margin: '10px 0' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ color: DIM, fontSize: 13 }}>{varLabel}</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 600, color: clickInfo.status === 'querying' ? DIM : ACCENT }}>
               {clickInfo.status === 'querying'
                 ? 'Querying…'
                 : formatValue(clickInfo.value, variable, waterYear)}
@@ -225,7 +225,7 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
           </div>
         </>
       ) : (
-        <div style={{ color: DIM, fontStyle: 'italic' }}>Click the map to query</div>
+        <div style={{ color: DIM, fontStyle: 'italic', fontSize: 13 }}>Click the map to query</div>
       )}
     </div>
   )

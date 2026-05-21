@@ -20,6 +20,7 @@ const TILES_STATUS_URL =
     : '/tiles-status.geojson'
 
 const ACCENT = '#1dbd8f'
+const FILL_VALUE = -32768
 
 const TILE_COLORS = {
   processed:   '#22c55e',
@@ -64,7 +65,6 @@ const mapTheme = {
 
 let pmtilesRegistered = false
 
-// IDs to skip when toggling basemap fill/background visibility for satellite mode
 const OWN_LAYER_IDS = new Set([
   'zarr-layer', 'esri-imagery',
   'tiles-fill', 'tiles-outline', 'tiles-highlight', 'tiles-highlight-outline',
@@ -80,13 +80,17 @@ function setBasemapFillVisibility(map: maplibregl.Map, visible: boolean) {
   })
 }
 
+function isValidValue(raw: unknown): raw is number {
+  return typeof raw === 'number' && !isNaN(raw) && raw !== FILL_VALUE && raw >= 0
+}
+
 export const Map = () => {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const zarrLayerRef = useRef<InstanceType<typeof ZarrLayer> | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
+  const lastClickRef = useRef<{ lng: number; lat: number } | null>(null)
 
-  // useState (not useRef) so that setting it triggers re-renders and dependent effects
   const [isMapLoaded, setIsMapLoaded] = useState(false)
 
   const variable = useStore((s) => s.variable)
@@ -126,6 +130,7 @@ export const Map = () => {
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
+      attributionControl: false,
       style: {
         projection: { type: 'globe' } as any,
         version: 8,
@@ -155,10 +160,10 @@ export const Map = () => {
       zoom: window.innerWidth < 640 ? 1.2 : 2.4,
     })
 
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
     mapRef.current = map
 
     map.on('load', () => {
-      // Tile processing status overlay
       const emptyFC = { type: 'FeatureCollection' as const, features: [] }
       map.addSource('tiles-status', { type: 'geojson', data: TILES_STATUS_URL })
       map.addSource('tiles-highlight-source', { type: 'geojson', data: emptyFC })
@@ -180,7 +185,7 @@ export const Map = () => {
 
       map.addLayer(
         { id: 'tiles-fill', type: 'fill', source: 'tiles-status',
-          paint: { 'fill-color': fillColor, 'fill-opacity': 0.25 },
+          paint: { 'fill-color': fillColor, 'fill-opacity': 0.1 },
           layout: { visibility: 'none' } } as any, beforeLabel
       )
       map.addLayer(
@@ -190,11 +195,11 @@ export const Map = () => {
       )
       map.addLayer(
         { id: 'tiles-highlight', type: 'fill', source: 'tiles-highlight-source',
-          paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.25 } } as any, beforeLabel
+          paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.15 } } as any, beforeLabel
       )
       map.addLayer(
         { id: 'tiles-highlight-outline', type: 'line', source: 'tiles-highlight-source',
-          paint: { 'line-color': '#ffffff', 'line-width': 3 } } as any, beforeLabel
+          paint: { 'line-color': '#ffffff', 'line-width': 2 } } as any, beforeLabel
       )
 
       const tileClickHandler = (e: maplibregl.MapLayerMouseEvent) => {
@@ -211,12 +216,10 @@ export const Map = () => {
       }
       const cursorOn  = () => { map.getCanvas().style.cursor = 'pointer' }
       const cursorOff = () => { map.getCanvas().style.cursor = '' }
-
       map.on('click', 'tiles-fill', tileClickHandler)
       map.on('mouseenter', 'tiles-fill', cursorOn)
       map.on('mouseleave', 'tiles-fill', cursorOff)
 
-      // Signal that the map is ready — this triggers all dependent useEffects
       setIsMapLoaded(true)
     })
 
@@ -237,7 +240,7 @@ export const Map = () => {
     )
   }, [globeProjection, isMapLoaded])
 
-  // Satellite toggle — hide all basemap fill/background layers so they don't mask satellite
+  // Satellite toggle — hide all basemap fill/background layers to avoid masking satellite
   useEffect(() => {
     if (!mapRef.current || !isMapLoaded) return
     const map = mapRef.current
@@ -259,18 +262,30 @@ export const Map = () => {
     }
   }, [showTiles, isMapLoaded, setTileClickInfo])
 
-  // Recreate ZarrLayer when variable changes or map first loads
+  // Helper: query current point with current layer and variable
+  const requeryPoint = (layer: InstanceType<typeof ZarrLayer>, cancelled: { val: boolean }) => {
+    const coords = lastClickRef.current
+    if (!coords) return
+    const currentVariable = useStore.getState().variable
+    setClickInfo({ ...coords, status: 'querying', value: null })
+    layer.queryData({ type: 'Point', coordinates: [coords.lng, coords.lat] }).then((result) => {
+      if (cancelled.val) return
+      const vals = result?.[currentVariable]
+      const raw = Array.isArray(vals) ? vals[0] : null
+      setClickInfo({ ...coords, status: 'done', value: isValidValue(raw) ? raw : null })
+    })
+  }
+
+  // Recreate ZarrLayer when variable changes or map first loads; re-query if point selected
   useEffect(() => {
     if (!mapRef.current || !isMapLoaded) return
     const map = mapRef.current
-    let cancelled = false
+    const cancelled = { val: false }
 
     if (zarrLayerRef.current) {
       try { if (map.getLayer('zarr-layer')) map.removeLayer('zarr-layer') } catch {}
       zarrLayerRef.current = null
     }
-    markerRef.current?.remove()
-    markerRef.current = null
 
     const state = useStore.getState()
     const options: ZarrLayerOptions = {
@@ -282,7 +297,7 @@ export const Map = () => {
       opacity: state.opacity,
       selector: { water_year: { selected: state.waterYearIndex, type: 'index' } },
       zarrVersion: 3,
-      fillValue: -32768,
+      fillValue: FILL_VALUE,
       proj4: MODIS_SINUSOIDAL_PROJ4,
       bounds: [-20015087, -10007544, 20015087, 10007544],
       latIsAscending: false,
@@ -296,48 +311,54 @@ export const Map = () => {
     } catch { beforeId = undefined }
 
     const layer = new ZarrLayer(options)
-    if (cancelled) return
+    if (cancelled.val) return
     map.addLayer(layer, beforeId)
     zarrLayerRef.current = layer
+
+    // Re-query existing selected point with new variable
+    requeryPoint(layer, cancelled)
 
     const clickHandler = async (event: maplibregl.MapMouseEvent) => {
       const currentLayer = zarrLayerRef.current
       if (!currentLayer) return
       const { lng, lat } = event.lngLat
+      lastClickRef.current = { lng, lat }
       markerRef.current?.remove()
       markerRef.current = new maplibregl.Marker({ color: ACCENT })
         .setLngLat([lng, lat])
         .addTo(map)
-      const currentVariable = useStore.getState().variable
-      setClickInfo({ lng, lat, status: 'querying', value: null })
-      const result = await currentLayer.queryData({ type: 'Point', coordinates: [lng, lat] })
-      const vals = result?.[currentVariable]
-      const raw = Array.isArray(vals) ? vals[0] : null
-      setClickInfo({
-        lng, lat, status: 'done',
-        value: typeof raw === 'number' && !isNaN(raw) ? raw : null,
-      })
+      const innerCancelled = { val: false }
+      requeryPoint(currentLayer, innerCancelled)
     }
 
     map.on('click', clickHandler)
 
     return () => {
-      cancelled = true
+      cancelled.val = true
       map.off('click', clickHandler)
       try { if (map.getLayer('zarr-layer')) map.removeLayer('zarr-layer') } catch {}
       zarrLayerRef.current = null
     }
-  }, [variable, isMapLoaded, setLoadingState, setClickInfo])
+  }, [variable, isMapLoaded, setLoadingState, setClickInfo]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Live updates — no layer recreation
+  // Opacity + clim + colormap updates (no layer recreation)
   useEffect(() => {
     const layer = zarrLayerRef.current
     if (!layer) return
     layer.setOpacity(opacity)
     layer.setClim(clim)
     layer.setColormap(colormapArray)
+  }, [opacity, clim, colormapArray])
+
+  // Water year selector update + re-query selected point
+  useEffect(() => {
+    const layer = zarrLayerRef.current
+    if (!layer) return
     layer.setSelector({ water_year: { selected: waterYearIndex, type: 'index' } })
-  }, [opacity, clim, colormapArray, waterYearIndex])
+    if (lastClickRef.current) {
+      requeryPoint(layer, { val: false })
+    }
+  }, [waterYearIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resize map when sidebar width changes
   useEffect(() => {
