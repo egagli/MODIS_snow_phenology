@@ -8,6 +8,9 @@ import { Protocol } from 'pmtiles'
 import {
   useStore,
   ZARR_URL,
+  VARIABLE_CONFIGS,
+  type Variable,
+  type ClickInfo,
   type TileClickInfo,
 } from '../lib/store'
 
@@ -21,6 +24,7 @@ const TILES_STATUS_URL =
 
 const ACCENT = '#1dbd8f'
 const FILL_VALUE = -32768
+const ALL_VARIABLES = ['SAD_DOWY', 'SDD_DOWY', 'max_consec_snow_days'] as const satisfies readonly Variable[]
 
 const TILE_COLORS = {
   processed:   '#22c55e',
@@ -87,7 +91,7 @@ function isValidValue(raw: unknown): raw is number {
 export const Map = () => {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const zarrLayerRef = useRef<InstanceType<typeof ZarrLayer> | null>(null)
+  const zarrLayersRef = useRef<Partial<Record<Variable, InstanceType<typeof ZarrLayer>>>>({})
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const lastClickRef = useRef<{ lng: number; lat: number } | null>(null)
 
@@ -262,111 +266,116 @@ export const Map = () => {
     }
   }, [showTiles, isMapLoaded, setTileClickInfo])
 
-  // Helper: query current point with current layer and variable
-  const requeryPoint = (layer: InstanceType<typeof ZarrLayer>, cancelled: { val: boolean }) => {
+  // Query all three variables at the currently clicked point
+  const requeryAllVariables = (cancelled: { val: boolean }) => {
     const coords = lastClickRef.current
     if (!coords) return
-    const currentVariable = useStore.getState().variable
-    setClickInfo({ ...coords, status: 'querying', value: null })
-    layer.queryData({ type: 'Point', coordinates: [coords.lng, coords.lat] }).then((result) => {
+    const EMPTY = { SAD_DOWY: null, SDD_DOWY: null, max_consec_snow_days: null }
+    setClickInfo({ lng: coords.lng, lat: coords.lat, status: 'querying', values: EMPTY })
+    Promise.all(
+      ALL_VARIABLES.map(async (varName) => {
+        const layer = zarrLayersRef.current[varName]
+        if (!layer) return [varName, null] as [Variable, number | null]
+        const result = await layer.queryData({ type: 'Point', coordinates: [coords.lng, coords.lat] })
+        const vals = result?.[varName]
+        const raw = Array.isArray(vals) ? vals[0] : null
+        return [varName, isValidValue(raw) ? raw : null] as [Variable, number | null]
+      })
+    ).then((entries) => {
       if (cancelled.val) return
-      const vals = result?.[currentVariable]
-      const raw = Array.isArray(vals) ? vals[0] : null
-      setClickInfo({ ...coords, status: 'done', value: isValidValue(raw) ? raw : null })
+      const values = Object.fromEntries(entries) as ClickInfo['values']
+      setClickInfo({ lng: coords.lng, lat: coords.lat, status: 'done', values })
     })
   }
 
-  // Recreate ZarrLayer when variable changes or map first loads; re-query if point selected
+  // Create all three ZarrLayers once when map loads; attach single click handler
   useEffect(() => {
     if (!mapRef.current || !isMapLoaded) return
     const map = mapRef.current
     const cancelled = { val: false }
-
-    if (zarrLayerRef.current) {
-      try { if (map.getLayer('zarr-layer')) map.removeLayer('zarr-layer') } catch {}
-      zarrLayerRef.current = null
-    }
-
     const state = useStore.getState()
-    // customFrag forces the named-band shader path, which correctly runs
-    // normalizeDataForTexture (fill -32768 → NaN → discard). Without it,
-    // the standard tex path skips that conversion and fill pixels render grey.
-    const varName = state.variable
-    const customFrag = `
-      if (${varName} != ${varName} || ${varName} < -100.0) { discard; }
-      float rescaled = (${varName} - clim.x) / (clim.y - clim.x);
-      vec4 c = texture(colormap, vec2(rescaled, 0.5));
-      fragColor = vec4(c.rgb, opacity);
-      fragColor.rgb *= fragColor.a;
-    `
-    const options: ZarrLayerOptions = {
-      id: 'zarr-layer',
-      source: ZARR_URL,
-      variable: state.variable,
-      clim: state.clim,
-      colormap: makeColormap(state.colormap, { format: 'hex' }),
-      opacity: state.opacity,
-      selector: { water_year: { selected: state.waterYearIndex, type: 'index' } },
-      zarrVersion: 3,
-      fillValue: FILL_VALUE,
-      proj4: MODIS_SINUSOIDAL_PROJ4,
-      bounds: [-20015087, -10007544, 20015087, 10007544],
-      latIsAscending: false,
-      onLoadingStateChange: setLoadingState,
-      customFrag,
-    }
 
-    let beforeId: string | undefined
-    try { if (map.getLayer('address_label')) beforeId = 'address_label' } catch {}
+    ALL_VARIABLES.forEach((varName) => {
+      const isActive = varName === state.variable
+      const vCfg = VARIABLE_CONFIGS[varName]
+      // x!=x detects NaN portably; <-100 catches raw fill -32768 if NaN conversion is skipped
+      const customFrag = `
+        if (${varName} != ${varName} || ${varName} < -100.0) { discard; }
+        float rescaled = (${varName} - clim.x) / (clim.y - clim.x);
+        vec4 c = texture(colormap, vec2(rescaled, 0.5));
+        fragColor = vec4(c.rgb, opacity);
+        fragColor.rgb *= fragColor.a;
+      `
+      const options: ZarrLayerOptions = {
+        id: `zarr-${varName}`,
+        source: ZARR_URL,
+        variable: varName,
+        clim: isActive ? state.clim : vCfg.clim,
+        colormap: makeColormap(isActive ? state.colormap : vCfg.colormap, { format: 'hex' }),
+        opacity: isActive ? state.opacity : 0,
+        selector: { water_year: { selected: state.waterYearIndex, type: 'index' } },
+        zarrVersion: 3,
+        fillValue: FILL_VALUE,
+        proj4: MODIS_SINUSOIDAL_PROJ4,
+        bounds: [-20015087, -10007544, 20015087, 10007544],
+        latIsAscending: false,
+        onLoadingStateChange: (ls) => {
+          if (useStore.getState().variable === varName) setLoadingState(ls)
+        },
+        customFrag,
+      }
+      let beforeId: string | undefined
+      try { if (map.getLayer('address_label')) beforeId = 'address_label' } catch {}
+      if (!cancelled.val) {
+        const layer = new ZarrLayer(options)
+        map.addLayer(layer, beforeId)
+        zarrLayersRef.current[varName] = layer
+      }
+    })
 
-    const layer = new ZarrLayer(options)
-    if (cancelled.val) return
-    map.addLayer(layer, beforeId)
-    zarrLayerRef.current = layer
-
-    // Re-query existing selected point with new variable
-    requeryPoint(layer, cancelled)
-
-    const clickHandler = async (event: maplibregl.MapMouseEvent) => {
-      const currentLayer = zarrLayerRef.current
-      if (!currentLayer) return
+    const clickHandler = (event: maplibregl.MapMouseEvent) => {
       const { lng, lat } = event.lngLat
       lastClickRef.current = { lng, lat }
       markerRef.current?.remove()
-      markerRef.current = new maplibregl.Marker({ color: ACCENT })
-        .setLngLat([lng, lat])
-        .addTo(map)
-      const innerCancelled = { val: false }
-      requeryPoint(currentLayer, innerCancelled)
+      markerRef.current = new maplibregl.Marker({ color: ACCENT }).setLngLat([lng, lat]).addTo(map)
+      requeryAllVariables({ val: false })
     }
-
     map.on('click', clickHandler)
 
     return () => {
       cancelled.val = true
       map.off('click', clickHandler)
-      try { if (map.getLayer('zarr-layer')) map.removeLayer('zarr-layer') } catch {}
-      zarrLayerRef.current = null
+      ALL_VARIABLES.forEach((varName) => {
+        try { if (map.getLayer(`zarr-${varName}`)) map.removeLayer(`zarr-${varName}`) } catch {}
+      })
+      zarrLayersRef.current = {}
     }
-  }, [variable, isMapLoaded, setLoadingState, setClickInfo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isMapLoaded, setLoadingState, setClickInfo]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Opacity + clim + colormap updates (no layer recreation)
+  // Switch which layer is visible when variable changes; re-query selected point
   useEffect(() => {
-    const layer = zarrLayerRef.current
+    if (!isMapLoaded) return
+    ALL_VARIABLES.forEach((v) => {
+      zarrLayersRef.current[v]?.setOpacity(v === variable ? opacity : 0)
+    })
+    if (lastClickRef.current) requeryAllVariables({ val: false })
+  }, [variable, isMapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Opacity + clim + colormap updates for the active layer
+  useEffect(() => {
+    const layer = zarrLayersRef.current[variable]
     if (!layer) return
     layer.setOpacity(opacity)
     layer.setClim(clim)
     layer.setColormap(colormapArray)
-  }, [opacity, clim, colormapArray])
+  }, [variable, opacity, clim, colormapArray])
 
-  // Water year selector update + re-query selected point
+  // Water year selector update on all layers + re-query selected point
   useEffect(() => {
-    const layer = zarrLayerRef.current
-    if (!layer) return
-    layer.setSelector({ water_year: { selected: waterYearIndex, type: 'index' } })
-    if (lastClickRef.current) {
-      requeryPoint(layer, { val: false })
-    }
+    ALL_VARIABLES.forEach((v) => {
+      zarrLayersRef.current[v]?.setSelector({ water_year: { selected: waterYearIndex, type: 'index' } })
+    })
+    if (lastClickRef.current) requeryAllVariables({ val: false })
   }, [waterYearIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resize map when sidebar width changes

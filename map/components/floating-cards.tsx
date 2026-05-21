@@ -187,15 +187,16 @@ const TileInspectorCard = ({ right, top }: { right: number; top: number }) => {
 // PointInspectorCard — always visible at bottom-right; shows placeholder until clicked
 // ---------------------------------------------------------------------------
 
+const QUERY_ROWS: { key: Variable; label: string }[] = [
+  { key: 'SAD_DOWY',             label: 'Appearance' },
+  { key: 'SDD_DOWY',             label: 'Disappearance' },
+  { key: 'max_consec_snow_days', label: 'Duration' },
+]
+
 const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }) => {
   const clickInfo = useStore((s) => s.clickInfo)
-  const variable = useStore((s) => s.variable)
   const waterYearIndex = useStore((s) => s.waterYearIndex)
   const waterYear = WATER_YEARS[waterYearIndex]
-
-  const varLabel = variable === 'SAD_DOWY' ? 'SAD DOWY'
-    : variable === 'SDD_DOWY' ? 'SDD DOWY'
-    : 'Max consec snow days'
 
   return (
     <div style={{ ...cardStyle, bottom, right }}>
@@ -215,17 +216,19 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
             <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{waterYear}</span>
           </div>
           <div style={{ borderTop: `1px solid ${BORDER}`, margin: '10px 0' }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ color: DIM, fontSize: 14, flexShrink: 0 }}>{varLabel}</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 700, textAlign: 'right',
-              color: clickInfo.status === 'querying' ? DIM
-                : clickInfo.value === null ? DIM
-                : ACCENT }}>
-              {clickInfo.status === 'querying'
-                ? 'Querying…'
-                : formatValue(clickInfo.value, variable, waterYear)}
-            </span>
-          </div>
+          {clickInfo.status === 'querying' ? (
+            <div style={{ color: DIM, fontSize: 14 }}>Querying…</div>
+          ) : (
+            QUERY_ROWS.map(({ key, label }) => (
+              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                <span style={{ color: DIM, fontSize: 14, flexShrink: 0 }}>{label}</span>
+                <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, textAlign: 'right',
+                  color: clickInfo.values[key] === null ? DIM : ACCENT }}>
+                  {formatValue(clickInfo.values[key], key, waterYear)}
+                </span>
+              </div>
+            ))
+          )}
         </>
       ) : (
         <div style={{ color: DIM, fontStyle: 'italic', fontSize: 14 }}>Click the map to query</div>

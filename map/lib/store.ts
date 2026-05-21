@@ -38,7 +38,7 @@ export type ClickInfo = {
   lng: number
   lat: number
   status: 'querying' | 'done'
-  value: number | null
+  values: { SAD_DOWY: number | null; SDD_DOWY: number | null; max_consec_snow_days: number | null }
 }
 
 export type TileClickInfo = Record<string, unknown> & {
