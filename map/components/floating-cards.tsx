@@ -10,7 +10,7 @@ const BORDER = '#2e3138'
 const TEXT = '#d0d0d0'
 const DIM = '#6b7280'
 const ACCENT = '#1dbd8f'
-const CARD_WIDTH = 280
+const CARD_WIDTH = 300
 
 const TILE_STATUS_META: Record<string, { label: string; color: string }> = {
   processed:   { label: 'Processed',   color: '#22c55e' },
@@ -199,25 +199,25 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
 
   return (
     <div style={{ ...cardStyle, bottom, right }}>
-      <div style={sectionLabelStyle}>Point Query</div>
+      <div style={{ ...sectionLabelStyle, fontSize: 11, marginBottom: 10 }}>Point Query</div>
       {clickInfo ? (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-            <span style={{ color: DIM, fontSize: 13 }}>Latitude</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{clickInfo.lat.toFixed(4)}°</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+            <span style={{ color: DIM, fontSize: 14 }}>Latitude</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{clickInfo.lat.toFixed(4)}°</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-            <span style={{ color: DIM, fontSize: 13 }}>Longitude</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{clickInfo.lng.toFixed(4)}°</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+            <span style={{ color: DIM, fontSize: 14 }}>Longitude</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{clickInfo.lng.toFixed(4)}°</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-            <span style={{ color: DIM, fontSize: 13 }}>Water Year</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{waterYear}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+            <span style={{ color: DIM, fontSize: 14 }}>Water Year</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{waterYear}</span>
           </div>
           <div style={{ borderTop: `1px solid ${BORDER}`, margin: '10px 0' }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ color: DIM, fontSize: 13 }}>{varLabel}</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 600, color: clickInfo.status === 'querying' ? DIM : ACCENT }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ color: DIM, fontSize: 14, flexShrink: 0 }}>{varLabel}</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 700, color: clickInfo.status === 'querying' ? DIM : ACCENT, textAlign: 'right' }}>
               {clickInfo.status === 'querying'
                 ? 'Querying…'
                 : formatValue(clickInfo.value, variable, waterYear)}
@@ -225,7 +225,7 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
           </div>
         </>
       ) : (
-        <div style={{ color: DIM, fontStyle: 'italic', fontSize: 13 }}>Click the map to query</div>
+        <div style={{ color: DIM, fontStyle: 'italic', fontSize: 14 }}>Click the map to query</div>
       )}
     </div>
   )
