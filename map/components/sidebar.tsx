@@ -1,5 +1,5 @@
 import React, { useEffect, useState, CSSProperties } from 'react'
-import { Box } from 'theme-ui'
+import { Box, Flex } from 'theme-ui'
 import { Filter, Slider, Colorbar, Input } from '@carbonplan/components'
 import { useThemedColormap } from '@carbonplan/colormaps'
 import {
@@ -16,16 +16,12 @@ const COLORMAPS = [
   'pinkgreen', 'redteal', 'orangeblue', 'yellowpurple',
 ]
 
-const SIDEBAR_WIDTH = 380
+export const SIDEBAR_WIDTH = 380
 const BG = 'rgba(22,25,30,0.96)'
 const BORDER = '#2e3138'
+const TEXT = '#d0d0d0'
 const DIM = '#6b7280'
 const ACCENT = '#1dbd8f'
-
-const dividerStyle: CSSProperties = {
-  borderTop: `1px solid ${BORDER}`,
-  margin: '12px 0',
-}
 
 const sectionLabelStyle: CSSProperties = {
   fontSize: 10,
@@ -34,6 +30,11 @@ const sectionLabelStyle: CSSProperties = {
   color: DIM,
   fontWeight: 600,
   marginBottom: 8,
+}
+
+const dividerStyle: CSSProperties = {
+  borderTop: `1px solid ${BORDER}`,
+  margin: '14px 0',
 }
 
 const rowStyle: CSSProperties = {
@@ -98,95 +99,101 @@ const SidebarContent = () => {
   }
 
   return (
-    <div>
+    <>
       {/* Header */}
-      <div style={{ marginBottom: 4, fontSize: 18, fontFamily: 'heading', fontWeight: 600, color: '#e2e8f0', letterSpacing: '0.01em' }}>
-        MODIS Snow Phenology
-      </div>
-      <div style={{ fontSize: 12, color: DIM, marginBottom: 4, lineHeight: 1.5 }}>
-        Global snow appearance, disappearance, and duration from MODIS MOD10A2 (2015–2024).
-      </div>
-      <div style={{ fontSize: 12, marginBottom: 12 }}>
+      <div style={{ padding: '20px 20px 14px', borderBottom: `1px solid ${BORDER}` }}>
+        <Box
+          as='h1'
+          sx={{
+            fontSize: [2, 2, 3, 3],
+            fontFamily: 'heading',
+            letterSpacing: 'heading',
+            lineHeight: 'heading',
+            color: 'primary',
+            m: 0,
+            mb: '6px',
+          }}
+        >
+          MODIS Snow Phenology
+        </Box>
+        <div style={{ fontSize: 11, color: DIM, lineHeight: 1.6, marginBottom: 4 }}>
+          Global snow appearance, disappearance, and duration derived from MODIS MOD10A2 (2015–2024).
+        </div>
         <a
           href='https://github.com/egagli/MODIS_snow_phenology'
           target='_blank'
           rel='noopener noreferrer'
-          style={{ color: ACCENT, textDecoration: 'none' }}
+          style={{ fontSize: 11, color: ACCENT, textDecoration: 'none' }}
         >
           egagli/MODIS_snow_phenology ↗
         </a>
       </div>
 
-      <div style={dividerStyle} />
+      {/* Controls */}
+      <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-      {/* Variable */}
-      <div style={sectionLabelStyle}>Variable</div>
-      <Filter
-        values={Object.fromEntries(
-          (Object.keys(VARIABLE_LABELS) as Variable[]).map((v) => [
-            VARIABLE_LABELS[v],
-            v === variable,
-          ])
-        )}
-        setValues={(obj: Record<string, boolean>) => {
-          const entry = (Object.entries(VARIABLE_LABELS) as [Variable, string][]).find(
-            ([, label]) => obj[label]
-          )
-          if (entry) setVariable(entry[0])
-        }}
-      />
-      <div style={{ fontSize: 11, color: DIM, marginTop: 4, marginBottom: 0 }}>
-        {VARIABLE_CONFIGS[variable].label} ({VARIABLE_CONFIGS[variable].units})
-      </div>
-
-      <div style={dividerStyle} />
-
-      {/* Water Year */}
-      <div style={sectionLabelStyle}>Water Year</div>
-      <div style={{ ...rowStyle, marginBottom: 4 }}>
-        <span style={{ ...labelStyle, minWidth: 'auto' }}>Year</span>
-        <span style={{ fontFamily: 'monospace', fontSize: 16, color: '#e2e8f0', fontWeight: 600 }}>
-          {WATER_YEARS[waterYearIndex]}
-        </span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 11, color: DIM }}>{WATER_YEARS[0]}</span>
-        <div style={{ flex: 1 }}>
-          <Slider
-            min={0}
-            max={WATER_YEARS.length - 1}
-            step={1}
-            value={waterYearIndex}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setWaterYearIndex(parseInt(e.target.value))
-            }
+        {/* Variable */}
+        <div>
+          <div style={sectionLabelStyle}>Variable</div>
+          <Filter
+            values={Object.fromEntries(
+              (Object.keys(VARIABLE_LABELS) as Variable[]).map((v) => [
+                VARIABLE_LABELS[v],
+                v === variable,
+              ])
+            )}
+            setValues={(obj: Record<string, boolean>) => {
+              const entry = (Object.entries(VARIABLE_LABELS) as [Variable, string][]).find(
+                ([, label]) => obj[label]
+              )
+              if (entry) setVariable(entry[0])
+            }}
           />
+          <div style={{ fontSize: 11, color: DIM, marginTop: 4 }}>
+            {VARIABLE_CONFIGS[variable].label} ({VARIABLE_CONFIGS[variable].units})
+          </div>
         </div>
-        <span style={{ fontSize: 11, color: DIM }}>{WATER_YEARS[WATER_YEARS.length - 1]}</span>
-      </div>
 
-      <div style={dividerStyle} />
+        {/* Water Year */}
+        <div>
+          <div style={{ ...sectionLabelStyle, marginBottom: 4 }}>
+            Water Year —{' '}
+            <span style={{ color: TEXT, fontWeight: 700 }}>{WATER_YEARS[waterYearIndex]}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: DIM }}>{WATER_YEARS[0]}</span>
+            <div style={{ flex: 1 }}>
+              <Slider
+                min={0}
+                max={WATER_YEARS.length - 1}
+                step={1}
+                value={waterYearIndex}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setWaterYearIndex(parseInt(e.target.value))
+                }
+              />
+            </div>
+            <span style={{ fontSize: 11, color: DIM }}>{WATER_YEARS[WATER_YEARS.length - 1]}</span>
+          </div>
+        </div>
 
-      {/* Display */}
-      <div style={sectionLabelStyle}>Display</div>
-
-      <div style={{ ...rowStyle, alignItems: 'flex-start' }}>
-        <span style={labelStyle}>Colormap</span>
-        <div style={{ flex: 1 }}>
+        {/* Colormap */}
+        <div>
+          <div style={sectionLabelStyle}>Colormap</div>
           <select
             value={colormap}
             onChange={(e) => setColormap(e.target.value)}
             style={{
               width: '100%',
-              background: '#1b1e23',
-              color: '#d0d0d0',
+              background: '#1e2128',
+              color: TEXT,
               border: `1px solid ${BORDER}`,
               borderRadius: 4,
               fontSize: 12,
-              padding: '3px 6px',
+              padding: '5px 8px',
               cursor: 'pointer',
               fontFamily: 'monospace',
-              marginBottom: 4,
+              marginBottom: 8,
             }}
           >
             {COLORMAPS.map((c) => (
@@ -195,38 +202,38 @@ const SidebarContent = () => {
           </select>
           <Colorbar width='100%' colormap={themedColormap} horizontal />
         </div>
-      </div>
 
-      <div style={rowStyle}>
-        <span style={labelStyle}>Range</span>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Input
-            size='xs'
-            type='number'
-            value={climInputs[0]}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleClimInput(0, e.target.value)}
-            onBlur={() => commitClim(0)}
-            onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') commitClim(0) }}
-            sx={{ width: `${Math.max(2, climInputs[0].length + 2)}ch` }}
-          />
-          <div style={{ flex: 1 }}>
-            <Colorbar width='100%' colormap={themedColormap} horizontal />
-          </div>
-          <Input
-            size='xs'
-            type='number'
-            value={climInputs[1]}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleClimInput(1, e.target.value)}
-            onBlur={() => commitClim(1)}
-            onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') commitClim(1) }}
-            sx={{ width: `${Math.max(2, climInputs[1].length + 2)}ch` }}
-          />
+        {/* Range */}
+        <div>
+          <div style={sectionLabelStyle}>Range</div>
+          <Flex sx={{ gap: 2, alignItems: 'center' }}>
+            <Input
+              size='xs'
+              type='number'
+              value={climInputs[0]}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleClimInput(0, e.target.value)}
+              onBlur={() => commitClim(0)}
+              onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') commitClim(0) }}
+              sx={{ width: `${Math.max(2, climInputs[0].length + 2)}ch` }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Colorbar width='100%' colormap={themedColormap} horizontal />
+            </Box>
+            <Input
+              size='xs'
+              type='number'
+              value={climInputs[1]}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleClimInput(1, e.target.value)}
+              onBlur={() => commitClim(1)}
+              onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') commitClim(1) }}
+              sx={{ width: `${Math.max(2, climInputs[1].length + 2)}ch` }}
+            />
+          </Flex>
         </div>
-      </div>
 
-      <div style={rowStyle}>
-        <span style={labelStyle}>Opacity</span>
-        <div style={{ flex: 1 }}>
+        {/* Opacity */}
+        <div>
+          <div style={sectionLabelStyle}>Opacity</div>
           <Slider
             min={0}
             max={1}
@@ -237,8 +244,9 @@ const SidebarContent = () => {
             }
           />
         </div>
+
       </div>
-    </div>
+    </>
   )
 }
 
@@ -246,28 +254,29 @@ export const Sidebar = () => {
   const setSidebarWidth = useStore((s) => s.setSidebarWidth)
 
   useEffect(() => {
-    setSidebarWidth(SIDEBAR_WIDTH + 32)
+    setSidebarWidth(SIDEBAR_WIDTH)
     return () => setSidebarWidth(0)
   }, [setSidebarWidth])
 
   return (
     <>
-      {/* Desktop: compact floating card */}
+      {/* Desktop: full-height flush left panel (overlays map, same as demo) */}
       <Box
         sx={{
-          display: ['none', 'none', 'block'],
+          display: ['none', 'none', 'flex'],
+          flexDirection: 'column',
           position: 'absolute',
-          top: 16,
-          left: 16,
+          top: 0,
+          left: 0,
           width: SIDEBAR_WIDTH,
-          maxHeight: 'calc(100vh - 32px)',
+          height: '100%',
           bg: BG,
-          border: `1px solid ${BORDER}`,
-          borderRadius: 8,
+          borderRight: `1px solid ${BORDER}`,
           backdropFilter: 'blur(6px)',
           overflowY: 'auto',
           zIndex: 10,
-          p: '16px',
+          color: TEXT,
+          fontSize: '13px',
         }}
       >
         <SidebarContent />

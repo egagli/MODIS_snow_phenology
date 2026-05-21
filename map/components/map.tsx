@@ -374,7 +374,7 @@ export const Map = () => {
           top: 0,
           right: 0,
           bottom: ['50vh', '50vh', 0],
-          left: sidebarWidth ?? 0,
+          left: 0,
         }}
       />
       <Box

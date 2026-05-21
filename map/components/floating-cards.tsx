@@ -199,7 +199,7 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
 
   return (
     <div style={{ ...cardStyle, bottom, right }}>
-      <div style={{ ...sectionLabelStyle, fontSize: 11, marginBottom: 10 }}>Point Query</div>
+      <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' as const, color: TEXT, marginBottom: 10 }}>Point Query</div>
       {clickInfo ? (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
@@ -217,7 +217,10 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
           <div style={{ borderTop: `1px solid ${BORDER}`, margin: '10px 0' }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
             <span style={{ color: DIM, fontSize: 14, flexShrink: 0 }}>{varLabel}</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 700, color: clickInfo.status === 'querying' ? DIM : ACCENT, textAlign: 'right' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 700, textAlign: 'right',
+              color: clickInfo.status === 'querying' ? DIM
+                : clickInfo.value === null ? DIM
+                : ACCENT }}>
               {clickInfo.status === 'querying'
                 ? 'Querying…'
                 : formatValue(clickInfo.value, variable, waterYear)}
