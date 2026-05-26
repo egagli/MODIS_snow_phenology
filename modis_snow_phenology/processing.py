@@ -512,11 +512,19 @@ def get_max_consec_snow_days_SAD_SDD_one_WY(effective_snow_da):
     }
 
     # add entry to substitution_dict for if at end of water year. SDD should be set to 366 for non-leap years and 367 for leap years.
-
-    if effective_snow_da.time.dt.is_leap_year.any():
-        last_dowy = 367
-    else:
-        last_dowy = 366
+    # Check whether Feb 29 actually falls within this water year's date range.
+    # Using is_leap_year.any() is wrong: for NH WY2017 (Oct 2016–Sep 2017) the
+    # Oct–Dec 2016 timestamps have is_leap_year=True even though Feb 29 2016 was
+    # before the water year started. Likewise for SH WY2016 (Apr 2016–Mar 2017).
+    # Direct range check is hemisphere-agnostic and always correct.
+    _times = pd.DatetimeIndex(effective_snow_da.time.values)
+    _min_t, _max_t = _times.min(), _times.max()
+    has_leap_day = any(
+        pd.Timestamp(y, 2, 29) >= _min_t and pd.Timestamp(y, 2, 29) <= _max_t
+        for y in range(_min_t.year, _max_t.year + 1)
+        if pd.Timestamp(year=y, month=1, day=1).is_leap_year
+    )
+    last_dowy = 367 if has_leap_day else 366
 
     substitution_dict[len(effective_snow_da.DOWY)] = last_dowy
 
