@@ -75,11 +75,11 @@ interface AppState {
 }
 
 export const useStore = create<AppState>((set) => ({
-  variable: 'SAD_DOWY',
+  variable: 'max_consec_snow_days',
   waterYearIndex: 0,
   opacity: 1,
-  clim: VARIABLE_CONFIGS.SAD_DOWY.clim,
-  colormap: VARIABLE_CONFIGS.SAD_DOWY.colormap,
+  clim: VARIABLE_CONFIGS.max_consec_snow_days.clim,
+  colormap: VARIABLE_CONFIGS.max_consec_snow_days.colormap,
   globeProjection: true,
   loadingState: { loading: false, metadata: false, chunks: false },
   sidebarWidth: null,

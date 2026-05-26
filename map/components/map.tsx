@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Box, Spinner } from 'theme-ui'
 import { useThemedColormap, makeColormap } from '@carbonplan/colormaps'
 import { ZarrLayer, ZarrLayerOptions } from '@carbonplan/zarr-layer'
+import FetchStore from '@zarrita/storage/fetch'
+import { open, get } from 'zarrita'
 import maplibregl from 'maplibre-gl'
 import { layers, namedFlavor } from '@protomaps/basemaps'
 import { Protocol } from 'pmtiles'
@@ -25,6 +27,31 @@ const TILES_STATUS_URL =
 const ACCENT = '#1dbd8f'
 const FILL_VALUE = -32768
 const ALL_VARIABLES = ['SAD_DOWY', 'SDD_DOWY', 'max_consec_snow_days'] as const satisfies readonly Variable[]
+
+// Level-0 spatial constants (from zarr.json spatial:transform for the finest pyramid level).
+// Used for point queries so they always hit the full-resolution data regardless of map zoom.
+const L0_SINU_R    = 6371007.181          // MODIS sinusoidal sphere radius (m)
+const L0_X_ORIGIN  = -20015109.354005992  // x coordinate of pixel (0,0) centre
+const L0_Y_ORIGIN  =  10007554.677003     // y coordinate of pixel (0,0) centre
+const L0_PIX_WIDTH =      463.3127165287733  // pixel width in meters (= height)
+const L0_N_ROWS    =  43200
+const L0_N_COLS    =  86400
+
+/** Convert WGS84 (lat, lon in degrees) → level-0 MODIS sinusoidal [row, col].
+ *  Returns null if the point is outside the grid or outside the valid domain. */
+function latlonToL0RowCol(lat: number, lon: number): [number, number] | null {
+  const lat_rad = (lat * Math.PI) / 180
+  const lon_rad = (lon * Math.PI) / 180
+  const x = L0_SINU_R * lon_rad * Math.cos(lat_rad)
+  const y = L0_SINU_R * lat_rad
+  const col = Math.round((x - L0_X_ORIGIN) / L0_PIX_WIDTH)
+  const row = Math.round((L0_Y_ORIGIN - y) / L0_PIX_WIDTH)
+  if (row < 0 || row >= L0_N_ROWS || col < 0 || col >= L0_N_COLS) return null
+  // Reject positions outside the sinusoidal ellipse (those pixels store FILL_VALUE anyway)
+  const validXMax = L0_SINU_R * Math.PI * Math.cos(lat_rad)
+  if (Math.abs(x) > validXMax + L0_PIX_WIDTH) return null
+  return [row, col]
+}
 
 const TILE_COLORS = {
   processed:   '#22c55e',
@@ -94,6 +121,30 @@ export const Map = () => {
   const zarrLayersRef = useRef<Partial<Record<Variable, InstanceType<typeof ZarrLayer>>>>({})
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const lastClickRef = useRef<{ lng: number; lat: number } | null>(null)
+  // Level-0 zarrita arrays opened once at mount — used for zoom-independent point queries
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const l0ArraysRef = useRef<Partial<Record<Variable, any>>>({})
+  // Promise that resolves when all three arrays are open — awaited in requeryAllVariables
+  // to guarantee a consistent data source (no mixed zarrita/queryData results).
+  const l0ArraysPromiseRef = useRef<Promise<void> | null>(null)
+
+  // Open level-0 arrays for all variables at mount (runs once).
+  // Each variable gets its own FetchStore pointing at its sub-URL so zarrita
+  // opens the array at the correct path (zarrita's open() ignores a `path`
+  // option — the path must be encoded in the store URL or a Location object).
+  useEffect(() => {
+    l0ArraysPromiseRef.current = Promise.all(
+      ALL_VARIABLES.map(async (varName) => {
+        try {
+          const arrayStore = new FetchStore(`${ZARR_URL}/0/${varName}`)
+          const arr = await open(arrayStore, { kind: 'array' })
+          l0ArraysRef.current[varName] = arr
+        } catch (e) {
+          console.warn(`Failed to open level-0 array for ${varName}:`, e)
+        }
+      })
+    ).then(() => undefined)
+  }, [])
 
   const [isMapLoaded, setIsMapLoaded] = useState(false)
 
@@ -266,26 +317,51 @@ export const Map = () => {
     }
   }, [showTiles, isMapLoaded, setTileClickInfo])
 
-  // Query all three variables at the currently clicked point
+  // Query all three variables at the currently clicked point.
+  // Always reads from level-0 (finest) zarr arrays so values are zoom-independent
+  // and consistent across all three variables.
+  // Awaits l0ArraysPromiseRef so we never mix zarrita reads with queryData() fallbacks
+  // (which caused the "values change on tab switch" race condition).
   const requeryAllVariables = (cancelled: { val: boolean }) => {
     const coords = lastClickRef.current
     if (!coords) return
     const EMPTY = { SAD_DOWY: null, SDD_DOWY: null, max_consec_snow_days: null }
     setClickInfo({ lng: coords.lng, lat: coords.lat, status: 'querying', values: EMPTY })
-    Promise.all(
-      ALL_VARIABLES.map(async (varName) => {
-        const layer = zarrLayersRef.current[varName]
-        if (!layer) return [varName, null] as [Variable, number | null]
-        const result = await layer.queryData({ type: 'Point', coordinates: [coords.lng, coords.lat] })
-        const vals = result?.[varName]
-        const raw = Array.isArray(vals) ? vals[0] : null
-        return [varName, isValidValue(raw) ? raw : null] as [Variable, number | null]
-      })
-    ).then((entries) => {
+
+    const runQuery = async () => {
+      // Wait for all three level-0 arrays to finish opening (metadata only, < 1 s)
+      if (l0ArraysPromiseRef.current) await l0ArraysPromiseRef.current
+      if (cancelled.val) return
+
+      const waterYearIdx = useStore.getState().waterYearIndex
+      const rowCol = latlonToL0RowCol(coords.lat, coords.lng)
+
+      const entries = await Promise.all(
+        ALL_VARIABLES.map(async (varName): Promise<[Variable, number | null]> => {
+          const arr = l0ArraysRef.current[varName]
+          if (arr && rowCol) {
+            try {
+              const [row, col] = rowCol
+              const result = await get(arr, [waterYearIdx, row, col])
+              // zarrita returns a scalar or a 0-d ndarray; unwrap either form
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const raw = (result as any)?.data?.[0] ?? result
+              return [varName, isValidValue(raw) ? (raw as number) : null]
+            } catch {
+              return [varName, null]
+            }
+          }
+          // rowCol is null → point is outside the sinusoidal domain (ocean/poles)
+          return [varName, null]
+        })
+      )
+
       if (cancelled.val) return
       const values = Object.fromEntries(entries) as ClickInfo['values']
       setClickInfo({ lng: coords.lng, lat: coords.lat, status: 'done', values })
-    })
+    }
+
+    runQuery()
   }
 
   // Create all three ZarrLayers once when map loads; attach single click handler

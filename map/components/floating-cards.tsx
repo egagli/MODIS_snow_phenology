@@ -10,7 +10,7 @@ const BORDER = '#2e3138'
 const TEXT = '#d0d0d0'
 const DIM = '#6b7280'
 const ACCENT = '#1dbd8f'
-const CARD_WIDTH = 300
+const CARD_WIDTH = 340
 
 const TILE_STATUS_META: Record<string, { label: string; color: string }> = {
   processed:   { label: 'Processed',   color: '#22c55e' },
@@ -67,20 +67,29 @@ function propLabel(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-// DOWY → calendar date for NH water year (Oct 1 of waterYear-1 is day 1)
-function dowyToDate(dowy: number, waterYear: number): string {
-  const start = new Date(waterYear - 1, 9, 1) // Oct 1 of previous calendar year
+// DOWY → calendar date, hemisphere-aware.
+// NH: water year starts Oct 1 of (waterYear-1)  e.g. WY2015 = 2014-10-01
+// SH: water year starts Apr 1 of waterYear       e.g. WY2015 = 2015-04-01
+function dowyToDate(dowy: number, waterYear: number, southernHemisphere: boolean): string {
+  const start = southernHemisphere
+    ? new Date(waterYear, 3, 1)       // Apr 1 of the water year
+    : new Date(waterYear - 1, 9, 1)   // Oct 1 of the previous calendar year
   const target = new Date(start.getTime() + (Math.round(dowy) - 1) * 86400000)
-  return target.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return target.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function formatValue(value: number | null, variable: Variable, waterYear: number): string {
+function formatValue(
+  value: number | null,
+  variable: Variable,
+  waterYear: number,
+  southernHemisphere: boolean,
+): string {
   if (value === null) return 'No data'
   if (variable === 'max_consec_snow_days') {
     return `${Math.round(value)} days`
   }
   const dowy = Math.round(value)
-  return `${dowy} (${dowyToDate(dowy, waterYear)})`
+  return `${dowy} (${dowyToDate(dowy, waterYear, southernHemisphere)})`
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +207,10 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
   const waterYearIndex = useStore((s) => s.waterYearIndex)
   const waterYear = WATER_YEARS[waterYearIndex]
 
+  // Southern hemisphere pixels have lat < 0; their water year starts Apr 1 of the
+  // label year rather than Oct 1 of the previous year.
+  const southernHemisphere = (clickInfo?.lat ?? 0) < 0
+
   return (
     <div style={{ ...cardStyle, bottom, right }}>
       <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' as const, color: TEXT, marginBottom: 10 }}>Point Query</div>
@@ -224,7 +237,7 @@ const PointInspectorCard = ({ right, bottom }: { right: number; bottom: number }
                 <span style={{ color: DIM, fontSize: 14, flexShrink: 0 }}>{label}</span>
                 <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, textAlign: 'right',
                   color: clickInfo.values[key] === null ? DIM : ACCENT }}>
-                  {formatValue(clickInfo.values[key], key, waterYear)}
+                  {formatValue(clickInfo.values[key], key, waterYear, southernHemisphere)}
                 </span>
               </div>
             ))

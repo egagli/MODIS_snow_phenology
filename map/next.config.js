@@ -16,6 +16,12 @@ const nextConfig = {
       __dirname,
       '../../zarr-layer/src/index.ts'
     )
+    // Alias zarrita and its storage sub-package to zarr-layer's copies so map.tsx
+    // can import zarrita directly without adding it as a separate map dependency.
+    const zarritaRoot = path.resolve(__dirname, '../../zarr-layer/node_modules/zarrita/dist/src')
+    const zarritaStorageRoot = path.resolve(__dirname, '../../zarr-layer/node_modules/@zarrita/storage/dist/src')
+    config.resolve.alias['zarrita'] = path.join(zarritaRoot, 'index.js')
+    config.resolve.alias['@zarrita/storage/fetch'] = path.join(zarritaStorageRoot, 'fetch.js')
     return config
   },
 }
