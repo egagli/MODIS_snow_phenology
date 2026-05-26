@@ -5,7 +5,9 @@ Usage:
     python process_single_tile.py --h 10 --v 4
     python process_single_tile.py --h 10 --v 4 --config-file config/config_v1.txt
 
-On success: commits data to Icechunk with message "h10v04: processed"
+On success: commits data to Icechunk with message:
+    "Tile(h=10, v=4) processed. Stats: [...] Special note: None"
+On no-data: commits an empty snapshot with Special note set to SPECIAL_NOTE_NODATA
 On failure: exits nonzero; no Icechunk commit (store remains clean)
 """
 
@@ -28,7 +30,11 @@ import xarray as xr
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from modis_snow_phenology import processing
-from modis_snow_phenology.config import Config
+from modis_snow_phenology.config import (
+    Config,
+    SPECIAL_NOTE_NONE,
+    SPECIAL_NOTE_NODATA,
+)
 from modis_snow_phenology.processing import _rss_mb
 
 logging.basicConfig(
@@ -179,21 +185,29 @@ def process_water_year(
     return metrics.expand_dims(water_year=[wy]), input_obs
 
 
-def _write_step_summary(tile_id, wy_stats, snapshot_id):
+def _write_step_summary(tile_id, wy_stats, snapshot_id, *, nodata=False):
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
-    lines = [
-        f"## Tile {tile_id}",
-        "",
-        "| Water Year | Input obs | Valid pixels | Coverage |",
-        "| ---------- | --------- | ------------ | -------- |",
-    ]
-    for wy, stats in sorted(wy_stats.items()):
-        lines.append(
-            f"| WY{wy} | {stats['input_obs']} | {stats['valid_pixels']:,} | {stats['coverage']:.1f}% |"
-        )
-    lines += ["", f"**Snapshot:** `{snapshot_id}`"]
+    lines = [f"## Tile {tile_id}", ""]
+    if nodata:
+        lines += [
+            "⚠️ **No input data found for any water year — empty commit made.**",
+            "",
+        ]
+    else:
+        lines += [
+            "| Water Year | Input obs | Valid pixels | Coverage |",
+            "| ---------- | --------- | ------------ | -------- |",
+        ]
+        for wy, stats in sorted(wy_stats.items()):
+            lines.append(
+                f"| WY{wy} | {stats['input_obs']} "
+                f"| {stats['valid_pixels']:,} "
+                f"| {stats['coverage']:.1f}% |"
+            )
+        lines.append("")
+    lines.append(f"**Snapshot:** `{snapshot_id}`")
     with open(summary_path, "w") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -271,11 +285,37 @@ def main():
         written_wys.append(wy)
 
     if not written_wys:
-        raise ValueError(f"No water years written for tile {tile_id}")
+        # No valid data for any water year — commit an empty snapshot so this
+        # tile is marked as attempted and skipped on future re-runs.
+        log.warning(f"No water years with data for tile {tile_id} — committing nodata marker")
+        commit_message = (
+            f"Tile(h={h}, v={v}) processed. "
+            f"Stats: [] "
+            f"Special note: {SPECIAL_NOTE_NODATA}"
+        )
+        while True:
+            try:
+                repo = icechunk.Repository.open(storage, config=repo_config)
+                session = repo.writable_session("main")
+                snapshot_id = session.commit(
+                    commit_message,
+                    rebase_with=icechunk.ConflictDetector(),
+                    allow_empty=True,
+                )
+                log.info(f"Committed nodata marker -> {snapshot_id}")
+                break
+            except Exception as exc:
+                delay = random.uniform(3, 10)
+                log.warning(f"Conflict on nodata commit, retrying in {delay:.1f}s: {exc}")
+                time.sleep(delay)
+        _write_step_summary(tile_id, {}, snapshot_id, nodata=True)
+        elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+        log.info(f"Done (nodata). Total time: {elapsed:.1f}s")
+        return
 
     skipped = set(target_wys) - set(written_wys)
     if skipped:
-        log.warning(f"Skipped WYs (no data): {sorted(skipped)}")
+        log.warning(f"Skipped WYs (insufficient observations): {sorted(skipped)}")
 
     # Build per-WY stats for the commit message.
     wy_stats = {}
@@ -284,7 +324,11 @@ def main():
         total = int(sad.size)
         valid = int(np.sum(~np.isnan(sad.values)))
         coverage = 100.0 * valid / total if total > 0 else 0.0
-        wy_stats[wy] = {"input_obs": input_obs, "valid_pixels": valid, "coverage": coverage}
+        wy_stats[wy] = {
+            "input_obs": input_obs,
+            "valid_pixels": valid,
+            "coverage": coverage,
+        }
 
     stats_parts = [
         f"(WY{wy}: input_obs={wy_stats[wy]['input_obs']}, "
@@ -293,9 +337,9 @@ def main():
         for wy, _, __ in pending_writes
     ]
     commit_message = (
-        f"{tile_id}: processed. "
+        f"Tile(h={h}, v={v}) processed. "
         f"Stats: [{', '.join(stats_parts)}] "
-        f"Special note: None"
+        f"Special note: {SPECIAL_NOTE_NONE}"
     )
 
     # Write all WYs then commit. ConflictDetector handles concurrent commits
@@ -310,7 +354,9 @@ def main():
             for wy, ds_write, _ in pending_writes:
                 log.info(f"WY{wy}: writing...")
                 ds_write.to_zarr(session.store, region="auto", mode="r+", zarr_format=3)
-            snapshot_id = session.commit(commit_message, rebase_with=icechunk.ConflictDetector())
+            snapshot_id = session.commit(
+                commit_message, rebase_with=icechunk.ConflictDetector()
+            )
             log.info(f"Committed: '{commit_message[:80]}...' -> {snapshot_id}")
             break
         except Exception as exc:

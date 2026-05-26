@@ -6,7 +6,7 @@
 CONFIG_NAME = config_v1
 VERSION = v1
 
-TILE_STATUS_PATH = processing/tile_data/tile_processing_status.geojson
+TILE_LIST_PATH = processing/tile_list.geojson
 WY_START = 2015
 WY_END = 2024
 SHARD_SHAPE = 1, 2400, 2400

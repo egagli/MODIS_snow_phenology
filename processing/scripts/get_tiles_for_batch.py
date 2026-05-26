@@ -1,8 +1,9 @@
 """
-Get unprocessed land tiles for GitHub Actions matrix processing.
+Get tiles for GitHub Actions matrix processing.
 
-Queries Icechunk commit history to determine which tiles have already been
-processed, then returns the remaining land tiles as a JSON matrix or count.
+Queries Icechunk commit history via get_processing_status_gdf to determine
+which tiles have already been processed or marked nodata, then returns the
+"unprocessed" tiles (or all "process" tiles) as a JSON matrix or count.
 
 Two modes:
     Legacy (single-level matrix):
@@ -33,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from modis_snow_phenology.config import (  # noqa: E402
     Config,
-    get_processed_tiles_from_icechunk,
+    get_processing_status_gdf,
 )
 
 BATCH_SIZE = 256
@@ -51,9 +52,10 @@ def parse_args():
         default="unprocessed",
         choices=["unprocessed", "all"],
         help=(
-            "'unprocessed': land tiles with no Icechunk commit yet "
-            "(includes previously failed); "
-            "'all': all land tiles (re-process everything)"
+            "'unprocessed': process tiles with no commit yet in Icechunk "
+            "(skips already-processed and nodata tiles); "
+            "'all': all tiles flagged 'process' in tile_list.geojson "
+            "(re-runs everything)"
         ),
     )
 
@@ -84,14 +86,17 @@ def main():
     args = parse_args()
     config = Config(args.config_file)
 
-    land_gdf = config.get_land_tiles()
-
     if args.which_tiles == "unprocessed":
+        # Query Icechunk history and return only tiles with no commit yet.
         repo = config.open_icechunk_repo()
-        processed = get_processed_tiles_from_icechunk(repo)
-        gdf = land_gdf[~land_gdf["tile"].isin(processed)].copy()
+        status_gdf = get_processing_status_gdf(
+            repo, config.TILE_LIST_PATH, config.years
+        )
+        gdf = status_gdf[status_gdf["status"] == "unprocessed"].copy()
     else:
-        gdf = land_gdf
+        # All tiles flagged for processing in tile_list.geojson, regardless of
+        # Icechunk history (useful for re-running everything from scratch).
+        gdf = config.get_process_tiles()
 
     tiles = [{"h": int(row.h), "v": int(row.v)} for _, row in gdf.iterrows()]
     total = len(tiles)
@@ -119,7 +124,7 @@ def main():
 
     if args.batch_index is not None:
         start = args.batch_index * BATCH_SIZE
-        batch = tiles[start : start + BATCH_SIZE]
+        batch = tiles[start: start + BATCH_SIZE]
         print(json.dumps({"tile": batch}))
         return
 

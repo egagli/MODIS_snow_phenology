@@ -20,45 +20,107 @@ import icechunk
 
 REPO_ROOT = Path(__file__).parent.parent
 
-# Matches new-format commit: "h10v04: processed. Stats: [...]"
-_NEW_MSG_RE = re.compile(r"^(h\d{2}v\d{2}): processed\. Stats:")
-# Matches legacy commit: "h10v04: processed"
-_OLD_MSG_RE = re.compile(r"^(h\d{2}v\d{2}): processed$")
+# Special note values embedded in commit messages (mirrors demo repo convention).
+SPECIAL_NOTE_NONE = "None"
+SPECIAL_NOTE_NODATA = (
+    "No input data found for any year, therefore no output written to tile."
+)
+
+# New-format commit: "Tile(h=10, v=4) processed. Stats: [...] Special note: ..."
+_NEW_MSG_RE = re.compile(
+    r"Tile\(h=(\d+), v=(\d+)\) processed\. Stats: \[([^\]]*)\] Special note: (.+)"
+)
+# Per-WY stat entry inside the Stats [...] list
+_STAT_RE = re.compile(
+    r"WY(\d{4}): input_obs=(\d+), valid_pixels=(\d+), coverage=([\d.]+)%"
+)
+# Legacy format: "h10v04: processed..." (old commit messages, backward compat)
+_OLD_MSG_RE = re.compile(r"^(h\d{2}v\d{2}): processed")
 
 
-def get_processing_status_gdf(repo, tile_status_path: Path) -> gpd.GeoDataFrame:
-    """Return all tiles annotated with their processing status for the web map.
+def get_processing_status_gdf(
+    repo, tile_list_path: Path, years: list[int]
+) -> gpd.GeoDataFrame:
+    """Return all tiles annotated with runtime processing status and per-year stats.
 
-    Status values: 'processed' (committed to Icechunk), 'ocean' (not land),
-    'unprocessed' (land but no commit yet).
+    Reads ``tile_list.geojson`` (whose ``processing_status`` column contains
+    ``"process"`` or ``"skip"``) and merges with the Icechunk commit history to
+    assign a runtime status to each tile.
+
+    Runtime ``status`` values:
+        ``"processed"``   — "process" tile, data written to store
+        ``"nodata"``      — "process" tile, no MODIS input found; empty commit made
+        ``"unprocessed"`` — "process" tile, no commit found yet
+        ``"skip"``        — tile marked "skip" in tile_list.geojson
+
+    Per-year columns ``{year}_valid_pixels`` and ``{year}_input_obs`` (int or NaN)
+    are added for each year in ``years``. Legacy commits (old ``h10v04`` format)
+    are treated as ``"processed"`` with NaN stats.
     """
-    processed = get_processed_tiles_from_icechunk(repo)
-    gdf = gpd.read_file(tile_status_path)
+    tile_gdf = gpd.read_file(tile_list_path).copy()
 
-    def assign_status(row):
-        if not row["land"]:
-            return "ocean"
-        if row["tile"] in processed:
-            return "processed"
-        return "unprocessed"
-
-    gdf["status"] = gdf.apply(assign_status, axis=1)
-    return gdf
-
-
-def get_processed_tiles_from_icechunk(repo) -> set[str]:
-    """Return the set of tile_ids already committed to the Icechunk store.
-
-    Walks commit history on the main branch and matches both the new rich
-    format (``h10v04: processed. Stats: ...``) and the legacy simple format
-    (``h10v04: processed``). Returns a set of tile_id strings like ``"h10v04"``.
-    """
-    done = set()
+    # Walk commit history once; build a dict keyed by (h, v) int tuples.
+    commit_info: dict[tuple[int, int], dict] = {}
     for commit in repo.ancestry(branch="main"):
-        m = _NEW_MSG_RE.match(commit.message) or _OLD_MSG_RE.match(commit.message)
+        msg = commit.message
+        m = _NEW_MSG_RE.match(msg)
         if m:
-            done.add(m.group(1))
-    return done
+            h, v = int(m.group(1)), int(m.group(2))
+            special_note = m.group(4).strip()
+            year_stats = {
+                int(sm.group(1)): {
+                    "input_obs": int(sm.group(2)),
+                    "valid_pixels": int(sm.group(3)),
+                    "coverage": float(sm.group(4)),
+                }
+                for sm in _STAT_RE.finditer(m.group(3))
+            }
+            commit_info[(h, v)] = {
+                "special_note": special_note,
+                "year_stats": year_stats,
+            }
+            continue
+        m = _OLD_MSG_RE.match(msg)
+        if m:
+            tile_id = m.group(1)  # e.g. "h10v04"
+            h, v = int(tile_id[1:3]), int(tile_id[4:6])
+            # Legacy commit: treat as processed, no per-year stats available.
+            commit_info.setdefault(
+                (h, v), {"special_note": SPECIAL_NOTE_NONE, "year_stats": {}}
+            )
+
+    def _status(row):
+        if row["processing_status"] == "skip":
+            return "skip"
+        key = (int(row["h"]), int(row["v"]))
+        if key not in commit_info:
+            return "unprocessed"
+        if commit_info[key]["special_note"] == SPECIAL_NOTE_NODATA:
+            return "nodata"
+        return "processed"
+
+    tile_gdf["status"] = tile_gdf.apply(_status, axis=1)
+
+    for yr in years:
+
+        def _valid_pixels(row, yr=yr):
+            key = (int(row["h"]), int(row["v"]))
+            info = commit_info.get(key)
+            if info is None:
+                return float("nan")
+            return info["year_stats"].get(yr, {}).get("valid_pixels", float("nan"))
+
+        def _input_obs(row, yr=yr):
+            key = (int(row["h"]), int(row["v"]))
+            info = commit_info.get(key)
+            if info is None:
+                return float("nan")
+            return info["year_stats"].get(yr, {}).get("input_obs", float("nan"))
+
+        tile_gdf[f"{yr}_valid_pixels"] = tile_gdf.apply(_valid_pixels, axis=1)
+        tile_gdf[f"{yr}_input_obs"] = tile_gdf.apply(_input_obs, axis=1)
+
+    return tile_gdf
 
 
 class Config:
@@ -77,7 +139,8 @@ class Config:
                         raw[key] = os.environ[key]
                     except KeyError:
                         raise ValueError(
-                            f"Config field '{key}' is set to ENV but ${key} is not set in the environment"
+                            f"Config field '{key}' is set to ENV but "
+                            f"${key} is not set in the environment"
                         )
                 else:
                     raw[key] = val
@@ -91,13 +154,22 @@ class Config:
         self.ICECHUNK_PREFIX: str = raw["ICECHUNK_PREFIX"]
         self.MULTISCALE_PREFIX: str = raw["MULTISCALE_PREFIX"]
 
-        self.TILE_STATUS_PATH: Path = REPO_ROOT / raw["TILE_STATUS_PATH"]
+        self.TILE_LIST_PATH: Path = REPO_ROOT / raw["TILE_LIST_PATH"]
 
         self.WY_START: int = int(raw["WY_START"])
         self.WY_END: int = int(raw["WY_END"])
 
-        self.SHARD_SHAPE: tuple[int, ...] = tuple(int(x) for x in raw["SHARD_SHAPE"].split(","))
-        self.INNER_CHUNK_SHAPE: tuple[int, ...] = tuple(int(x) for x in raw["INNER_CHUNK_SHAPE"].split(","))
+        self.SHARD_SHAPE: tuple[int, ...] = tuple(
+            int(x) for x in raw["SHARD_SHAPE"].split(",")
+        )
+        self.INNER_CHUNK_SHAPE: tuple[int, ...] = tuple(
+            int(x) for x in raw["INNER_CHUNK_SHAPE"].split(",")
+        )
+
+    @property
+    def years(self) -> list[int]:
+        """All water years covered by this config, inclusive."""
+        return list(range(self.WY_START, self.WY_END + 1))
 
     @property
     def multiscale_zarr_url(self) -> str:
@@ -107,7 +179,9 @@ class Config:
             f"/{self.AZURE_CONTAINER}/{self.MULTISCALE_PREFIX}"
         )
 
-    def open_icechunk_repo(self, config: "icechunk.RepositoryConfig | None" = None):
+    def open_icechunk_repo(
+        self, config: "icechunk.RepositoryConfig | None" = None
+    ):
         """Open the Icechunk repository for this config's Azure storage location."""
         storage = icechunk.azure_storage(
             account=self.AZURE_STORAGE_ACCOUNT,
@@ -117,17 +191,14 @@ class Config:
         )
         return icechunk.Repository.open(storage, config=config)
 
-    def load_tile_status(self) -> gpd.GeoDataFrame:
-        return gpd.read_file(self.TILE_STATUS_PATH)
+    def load_tile_list(self) -> gpd.GeoDataFrame:
+        """Load the static tile registry GeoDataFrame from tile_list.geojson."""
+        return gpd.read_file(self.TILE_LIST_PATH)
 
-    def get_land_tiles(self) -> gpd.GeoDataFrame:
-        """Return all tiles that intersect land (used as the candidate processing pool)."""
-        gdf = self.load_tile_status()
-        return gdf[gdf["land"]].copy()
-
-    def get_tiles_by_status(self, statuses: list[str]) -> gpd.GeoDataFrame:
-        gdf = self.load_tile_status()
-        return gdf[gdf["processing_status"].isin(statuses)].copy()
+    def get_process_tiles(self) -> gpd.GeoDataFrame:
+        """Return tiles flagged for processing (processing_status == 'process')."""
+        gdf = self.load_tile_list()
+        return gdf[gdf["processing_status"] == "process"].copy()
 
     @staticmethod
     def tile_id(h: int, v: int) -> str:

@@ -2,7 +2,8 @@
 
 Run locally:
     pixi run -e ci python map/generate_tiles_status_geojson.py
-    pixi run -e ci python map/generate_tiles_status_geojson.py --config config/config_with_secrets_v1.txt
+    pixi run -e ci python map/generate_tiles_status_geojson.py \
+        --config config/config_with_secrets_v1.txt
 
 Run in CI: see .github/workflows/deploy-map.yml — this script is called
 automatically before the Next.js build so the map always reflects the
@@ -13,8 +14,8 @@ ENV placeholder), or use config_with_secrets_v1.txt for local runs.
 """
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 OUTPUT = Path(__file__).parent / "public" / "tiles-status.geojson"
@@ -23,7 +24,9 @@ sys.path.insert(0, str(REPO_ROOT))
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate tiles-status.geojson for the web map.")
+    parser = argparse.ArgumentParser(
+        description="Generate tiles-status.geojson for the web map."
+    )
     parser.add_argument(
         "--config",
         default="config/config_v1.txt",
@@ -35,7 +38,7 @@ def main():
 
     config = Config(args.config)
     repo = config.open_icechunk_repo()
-    gdf = get_processing_status_gdf(repo, config.TILE_STATUS_PATH)
+    gdf = get_processing_status_gdf(repo, config.TILE_LIST_PATH, config.years)
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_file(OUTPUT, driver="GeoJSON")

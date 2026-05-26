@@ -1,0 +1,77 @@
+name: Process All Tiles
+
+# Re-runnable: queries Icechunk history to skip already-processed tiles.
+#
+# Uses a batches-of-batches pattern to stay under the 256-job matrix limit:
+#   1. generate-tile-matrix: queries unprocessed tiles, outputs batch index list
+#   2. process-batches: one job per batch, each calls process_batch.yml
+#      which internally fans out up to 256 tile jobs
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_file:
+        description: 'Config file to use'
+        required: false
+        default: 'config/config_v1.txt'
+        type: choice
+        options:
+          - config/config_v1.txt
+      which_tiles:
+        description: 'Which tiles to process'
+        required: false
+        default: 'unprocessed'
+        type: choice
+        options:
+          - unprocessed
+          - all
+
+env:
+  AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  generate-tile-matrix:
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.get-batches.outputs.matrix }}
+      count: ${{ steps.get-batches.outputs.count }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.8.3
+        with:
+          pixi-version: v0.39.0
+          environments: ci
+
+      - name: Install package
+        run: pixi run -e ci pip install -e .
+
+      - name: Generate batch list from Icechunk history
+        id: get-batches
+        run: |
+          OUTPUT=$(pixi run -e ci python processing/scripts/get_tiles_for_batch.py \
+            --config-file ${{ inputs.config_file }} \
+            --which-tiles ${{ inputs.which_tiles }} \
+            --list-batches)
+          COUNT=$(echo "$OUTPUT" | python -c "import sys,json; print(len(json.load(sys.stdin)['batch_index']))")
+          echo "matrix=$OUTPUT" >> $GITHUB_OUTPUT
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+  process-batches:
+    needs: generate-tile-matrix
+    if: fromJson(needs.generate-tile-matrix.outputs.count) > 0
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.generate-tile-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/process_batch.yml
+    with:
+      batch_index: ${{ matrix.batch_index }}
+      config_file: ${{ inputs.config_file }}
+      which_tiles: ${{ inputs.which_tiles }}
+    secrets: inherit

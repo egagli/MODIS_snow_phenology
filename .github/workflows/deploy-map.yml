@@ -6,7 +6,7 @@ on:
     paths:
       - 'map/**'
       - 'modis_snow_phenology/**'
-      - 'processing/tile_data/tile_processing_status.geojson'
+      - 'processing/tile_list.geojson'
   workflow_dispatch:
     inputs:
       config_file:
