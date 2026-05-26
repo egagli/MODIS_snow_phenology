@@ -28,9 +28,11 @@ jobs:
           path: MODIS_snow_phenology
 
       # zarr-layer is a local file: dep at ../../zarr-layer relative to map/
+      # Using egagli/zarr-layer fork which has the worldFraction fix for MODIS
+      # sinusoidal CRS (needed for correct multiscale pyramid level selection).
       - uses: actions/checkout@v4
         with:
-          repository: carbonplan/zarr-layer
+          repository: egagli/zarr-layer
           path: zarr-layer
 
       # --- Python: generate tiles-status.geojson from Icechunk history -------
