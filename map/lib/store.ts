@@ -32,7 +32,7 @@ export const WATER_YEARS = [
 ] as const
 
 export const ZARR_URL =
-  'https://uwcryo.blob.core.windows.net/snowmelt/modis_snow_phenology/modis_snow_phenology_multiscale_v1'
+  'https://uwcryo.blob.core.windows.net/snowmelt/modis_snow_phenology/modis_snow_phenology_multiscale_v2'
 
 export type ClickInfo = {
   lng: number
