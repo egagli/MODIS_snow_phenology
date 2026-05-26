@@ -40,6 +40,17 @@ def main():
     repo = config.open_icechunk_repo()
     gdf = get_processing_status_gdf(repo, config.TILE_LIST_PATH, config.years)
 
+    # Reproject to WGS84 — tile_list.geojson uses MODIS sinusoidal (metres);
+    # MapLibre GeoJSON sources require lon/lat coordinates.
+    if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
+        gdf = gdf.to_crs("EPSG:4326")
+
+    # Drop verbose per-year scene-count columns (num_scenes_2000 … num_scenes_2026).
+    # These come from the initialisation notebook and bloat the GeoJSON; the map
+    # only needs total_num_MOD10A2_scenes for a single summary figure.
+    drop_cols = [c for c in gdf.columns if c.startswith("num_scenes_")]
+    gdf = gdf.drop(columns=drop_cols, errors="ignore")
+
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_file(OUTPUT, driver="GeoJSON")
     print(f"Written {len(gdf)} tiles → {OUTPUT}")

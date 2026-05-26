@@ -130,6 +130,31 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
 
 const SKIP_KEYS = new Set(['geometry', 'type', 'tile', 'status'])
 
+// Columns that encode per-water-year stats as "{year}_valid_pixels" / "{year}_input_obs".
+// These are rendered as a compact table instead of individual key-value rows.
+const WY_STAT_RE = /^(\d{4})_(valid_pixels|input_obs)$/
+
+const TOTAL_PIXELS = 2400 * 2400 // pixels per MODIS tile
+
+/** Pull per-WY stats out of tileClickInfo props and return sorted rows. */
+function extractWyStats(props: Record<string, unknown>): {
+  year: number; inputObs: number | null; coverage: number | null
+}[] {
+  const byYear: Record<number, { inputObs: number | null; coverage: number | null }> = {}
+  for (const [k, v] of Object.entries(props)) {
+    const m = WY_STAT_RE.exec(k)
+    if (!m) continue
+    const year = parseInt(m[1])
+    if (!byYear[year]) byYear[year] = { inputObs: null, coverage: null }
+    const num = typeof v === 'number' && !isNaN(v) ? v : null
+    if (m[2] === 'input_obs') byYear[year].inputObs = num
+    if (m[2] === 'valid_pixels') byYear[year].coverage = num !== null ? (100 * num) / TOTAL_PIXELS : null
+  }
+  return Object.entries(byYear)
+    .map(([yr, s]) => ({ year: parseInt(yr), ...s }))
+    .sort((a, b) => a.year - b.year)
+}
+
 const TileInspectorCard = ({ right, top }: { right: number; top: number }) => {
   const showTiles = useStore((s) => s.showTiles)
   const tileClickInfo = useStore((s) => s.tileClickInfo)
@@ -176,14 +201,46 @@ const TileInspectorCard = ({ right, top }: { right: number; top: number }) => {
               }}>
                 {TILE_STATUS_META[tileClickInfo.status]?.label ?? tileClickInfo.status}
               </div>
+              {/* Scalar properties (skip per-WY stat columns — rendered below) */}
               {Object.entries(tileClickInfo)
-                .filter(([k]) => !SKIP_KEYS.has(k))
+                .filter(([k, v]) => !SKIP_KEYS.has(k) && !WY_STAT_RE.test(k) && v !== null && v !== undefined)
                 .map(([k, v]) => (
                   <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                     <span style={{ color: DIM }}>{propLabel(k)}</span>
                     <span style={{ fontFamily: 'monospace' }}>{formatPropValue(v)}</span>
                   </div>
                 ))}
+
+              {/* Per-water-year stats — compact table */}
+              {(() => {
+                const rows = extractWyStats(tileClickInfo as Record<string, unknown>)
+                if (rows.length === 0) return null
+                return (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={sectionLabelStyle}>Per-Year Stats</div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'monospace' }}>
+                      <thead>
+                        <tr style={{ color: DIM }}>
+                          <th style={{ textAlign: 'left',  paddingBottom: 3, fontWeight: 400 }}>WY</th>
+                          <th style={{ textAlign: 'right', paddingBottom: 3, fontWeight: 400 }}>Scenes</th>
+                          <th style={{ textAlign: 'right', paddingBottom: 3, fontWeight: 400 }}>Snow %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(({ year, inputObs, coverage }) => (
+                          <tr key={year}>
+                            <td style={{ paddingBottom: 1 }}>{year}</td>
+                            <td style={{ textAlign: 'right', paddingBottom: 1 }}>{inputObs ?? '—'}</td>
+                            <td style={{ textAlign: 'right', paddingBottom: 1 }}>
+                              {coverage !== null ? coverage.toFixed(1) + '%' : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })()}
             </>
           )}
         </>

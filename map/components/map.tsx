@@ -371,6 +371,14 @@ export const Map = () => {
     const cancelled = { val: false }
     const state = useStore.getState()
 
+    // Tile status layers were added during map.on('load') — before zarr layers
+    // existed — so zarr renders on top of the grid. Move them to the top of
+    // the layer stack now so the processing grid is always above the raster.
+    const TILE_LAYER_IDS = ['tiles-fill', 'tiles-outline', 'tiles-highlight', 'tiles-highlight-outline']
+    TILE_LAYER_IDS.forEach((id) => {
+      try { if (map.getLayer(id)) map.moveLayer(id) } catch {}
+    })
+
     ALL_VARIABLES.forEach((varName) => {
       const isActive = varName === state.variable
       const vCfg = VARIABLE_CONFIGS[varName]

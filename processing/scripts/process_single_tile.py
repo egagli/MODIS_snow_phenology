@@ -318,11 +318,16 @@ def main():
         log.warning(f"Skipped WYs (insufficient observations): {sorted(skipped)}")
 
     # Build per-WY stats for the commit message.
+    # max_consec_snow_days is int16; fill value is np.iinfo(np.int16).min (-32768)
+    # for ocean/no-data pixels; land pixels with no snow have value 0.
+    # "valid_pixels" = pixels that had at least 1 consecutive snow day (> 0).
+    # np.isnan() always returns False for integer arrays, so we check the
+    # sentinel fill value and zero explicitly.
     wy_stats = {}
     for wy, ds_write, input_obs in pending_writes:
-        sad = ds_write["SAD_DOWY"]
-        total = int(sad.size)
-        valid = int(np.sum(~np.isnan(sad.values)))
+        mcsd = ds_write["max_consec_snow_days"]
+        total = int(mcsd.size)
+        valid = int(np.sum(mcsd.values > 0))
         coverage = 100.0 * valid / total if total > 0 else 0.0
         wy_stats[wy] = {
             "input_obs": input_obs,
