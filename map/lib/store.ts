@@ -31,7 +31,10 @@ export const WATER_YEARS = [
   2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024,
 ] as const
 
+// Injected at build time from MULTISCALE_PREFIX in the config file via NEXT_PUBLIC_ZARR_URL.
+// Falls back to the v2 store so local `npm run dev` works without setting the env var.
 export const ZARR_URL =
+  process.env.NEXT_PUBLIC_ZARR_URL ??
   'https://uwcryo.blob.core.windows.net/snowmelt/modis_snow_phenology/modis_snow_phenology_multiscale_v2'
 
 export type ClickInfo = {

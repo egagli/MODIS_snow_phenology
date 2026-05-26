@@ -8,6 +8,14 @@ on:
       - 'modis_snow_phenology/**'
       - 'processing/tile_data/tile_processing_status.geojson'
   workflow_dispatch:
+    inputs:
+      config_file:
+        description: 'Config file to use'
+        required: false
+        default: 'config/config_v1.txt'
+        type: choice
+        options:
+          - config/config_v1.txt
 
 permissions:
   contents: read
@@ -46,7 +54,20 @@ jobs:
         working-directory: MODIS_snow_phenology
         env:
           AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
-        run: pixi run -e ci python map/generate_tiles_status_geojson.py
+        run: |
+          pixi run -e ci python map/generate_tiles_status_geojson.py \
+            --config "${{ inputs.config_file || 'config/config_v1.txt' }}"
+
+      # Extract MULTISCALE_PREFIX from the config and set NEXT_PUBLIC_ZARR_URL
+      # so the Next.js build bakes the correct zarr URL into the static bundle.
+      - name: Set NEXT_PUBLIC_ZARR_URL from config
+        working-directory: MODIS_snow_phenology
+        run: |
+          CONFIG="${{ inputs.config_file || 'config/config_v1.txt' }}"
+          ACCOUNT=$(grep '^AZURE_STORAGE_ACCOUNT' "$CONFIG" | cut -d'=' -f2 | tr -d ' ')
+          CONTAINER=$(grep '^AZURE_CONTAINER'       "$CONFIG" | cut -d'=' -f2 | tr -d ' ')
+          PREFIX=$(grep  '^MULTISCALE_PREFIX'        "$CONFIG" | cut -d'=' -f2 | tr -d ' ')
+          echo "NEXT_PUBLIC_ZARR_URL=https://${ACCOUNT}.blob.core.windows.net/${CONTAINER}/${PREFIX}" >> $GITHUB_ENV
 
       # --- Node: build Next.js static export ----------------------------------
       - uses: actions/setup-node@v4

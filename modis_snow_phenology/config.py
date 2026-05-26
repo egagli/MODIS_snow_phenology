@@ -89,6 +89,7 @@ class Config:
         self.AZURE_STORAGE_SAS_TOKEN: str = raw["AZURE_STORAGE_SAS_TOKEN"]
         self.AZURE_CONTAINER: str = raw["AZURE_CONTAINER"]
         self.ICECHUNK_PREFIX: str = raw["ICECHUNK_PREFIX"]
+        self.MULTISCALE_PREFIX: str = raw["MULTISCALE_PREFIX"]
 
         self.TILE_STATUS_PATH: Path = REPO_ROOT / raw["TILE_STATUS_PATH"]
 
@@ -97,6 +98,14 @@ class Config:
 
         self.SHARD_SHAPE: tuple[int, ...] = tuple(int(x) for x in raw["SHARD_SHAPE"].split(","))
         self.INNER_CHUNK_SHAPE: tuple[int, ...] = tuple(int(x) for x in raw["INNER_CHUNK_SHAPE"].split(","))
+
+    @property
+    def multiscale_zarr_url(self) -> str:
+        """Full Azure blob URL for the multiscale Zarr pyramid."""
+        return (
+            f"https://{self.AZURE_STORAGE_ACCOUNT}.blob.core.windows.net"
+            f"/{self.AZURE_CONTAINER}/{self.MULTISCALE_PREFIX}"
+        )
 
     def open_icechunk_repo(self, config: "icechunk.RepositoryConfig | None" = None):
         """Open the Icechunk repository for this config's Azure storage location."""
