@@ -26,6 +26,11 @@ SPECIAL_NOTE_NODATA = (
     "No input data found for any year, therefore no output written to tile."
 )
 
+# MODIS sinusoidal projection — matches the source tile grid shapefile.
+# GeoJSON does not preserve CRS, so every read of tile_list.geojson must
+# explicitly set this.
+MODIS_SINUSOIDAL_CRS = "+proj=sinu +R=6371007.181 +nadgrids=@null +wktext"
+
 # New-format: "Tile(h=10, v=4) processed. Stats: [...] Special note: ..."
 _NEW_MSG_RE = re.compile(
     r"Tile\(h=(\d+), v=(\d+)\) processed\."
@@ -64,7 +69,7 @@ def get_processing_status_gdf(
     Column order: tile, h, v, processing_status, processing_notes, land,
     to_process, tile_notes, then per-year stats, then any remaining columns.
     """
-    tile_gdf = gpd.read_file(tile_list_path).copy()
+    tile_gdf = gpd.read_file(tile_list_path).set_crs(MODIS_SINUSOIDAL_CRS).copy()
 
     # Walk commit history once; build a dict keyed by (h, v) int tuples.
     commit_info: dict[tuple[int, int], dict] = {}
@@ -250,7 +255,7 @@ class Config:
 
     def load_tile_list(self) -> gpd.GeoDataFrame:
         """Load the static tile registry from tile_list.geojson."""
-        return gpd.read_file(self.TILE_LIST_PATH)
+        return gpd.read_file(self.TILE_LIST_PATH).set_crs(MODIS_SINUSOIDAL_CRS)
 
     def get_process_tiles(self) -> gpd.GeoDataFrame:
         """Return tiles flagged for processing (to_process == True)."""
