@@ -46,7 +46,7 @@ export type ClickInfo = {
 
 export type TileClickInfo = Record<string, unknown> & {
   tile: string
-  status: string
+  processing_status: string
   land: boolean
 }
 

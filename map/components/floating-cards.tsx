@@ -15,8 +15,8 @@ const CARD_WIDTH = 340
 const TILE_STATUS_META: Record<string, { label: string; color: string }> = {
   processed:   { label: 'Processed',   color: '#22c55e' },
   unprocessed: { label: 'Unprocessed', color: '#ef4444' },
-  ocean:       { label: 'Ocean',       color: '#3b82f6' },
-  unknown:     { label: 'Unknown',     color: '#94a3b8' },
+  nodata:      { label: 'No Data',     color: '#f97316' },
+  skip:        { label: 'Skip',        color: '#3b82f6' },
 }
 
 const cardStyle: CSSProperties = {
@@ -128,7 +128,7 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
 // TileInspectorCard — Tile overlay toggle + legend + click info
 // ---------------------------------------------------------------------------
 
-const SKIP_KEYS = new Set(['geometry', 'type', 'tile', 'status'])
+const SKIP_KEYS = new Set(['geometry', 'type', 'tile', 'processing_status', 'to_process'])
 
 // Columns that encode per-water-year stats as "{year}_valid_pixels" / "{year}_input_obs".
 // These are rendered as a compact table instead of individual key-value rows.
@@ -196,10 +196,10 @@ const TileInspectorCard = ({ right, top }: { right: number; top: number }) => {
               </div>
               <div style={{
                 display: 'inline-block', padding: '2px 8px', borderRadius: 4, marginBottom: 10,
-                background: TILE_STATUS_META[tileClickInfo.status]?.color ?? TILE_STATUS_META.unknown.color,
+                background: TILE_STATUS_META[tileClickInfo.processing_status]?.color ?? TILE_STATUS_META.skip.color,
                 color: '#fff', fontSize: 11, fontWeight: 600,
               }}>
-                {TILE_STATUS_META[tileClickInfo.status]?.label ?? tileClickInfo.status}
+                {TILE_STATUS_META[tileClickInfo.processing_status]?.label ?? tileClickInfo.processing_status}
               </div>
               {/* Scalar properties (skip per-WY stat columns — rendered below) */}
               {Object.entries(tileClickInfo)

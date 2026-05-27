@@ -56,8 +56,8 @@ function latlonToL0RowCol(lat: number, lon: number): [number, number] | null {
 const TILE_COLORS = {
   processed:   '#22c55e',
   unprocessed: '#ef4444',
-  ocean:       '#3b82f6',
-  unknown:     '#94a3b8',
+  nodata:      '#f97316',
+  skip:        '#3b82f6',
 }
 
 const backgroundColor = '#1b1e23'
@@ -225,11 +225,11 @@ export const Map = () => {
 
       const fillColor: maplibregl.ExpressionSpecification = [
         'case',
-        ['==', ['get', 'status'], 'processed'],   TILE_COLORS.processed,
-        ['==', ['get', 'status'], 'unprocessed'],  TILE_COLORS.unprocessed,
-        ['==', ['get', 'status'], 'ocean'],        TILE_COLORS.ocean,
-        ['==', ['get', 'land'], false],            TILE_COLORS.ocean,
-        TILE_COLORS.unknown,
+        ['==', ['get', 'processing_status'], 'processed'],   TILE_COLORS.processed,
+        ['==', ['get', 'processing_status'], 'unprocessed'],  TILE_COLORS.unprocessed,
+        ['==', ['get', 'processing_status'], 'nodata'],       TILE_COLORS.nodata,
+        ['==', ['get', 'processing_status'], 'skip'],         TILE_COLORS.skip,
+        TILE_COLORS.skip,
       ]
 
       const beforeLabel = (() => {
@@ -261,8 +261,8 @@ export const Map = () => {
         const feature = e.features?.[0]
         if (!feature) return
         const props = feature.properties as Record<string, unknown>
-        const status = (props.status as string) ?? (props.land === false ? 'ocean' : 'unknown')
-        setTileClickInfo({ ...props, status } as TileClickInfo)
+        const processing_status = (props.processing_status as string) ?? 'skip'
+        setTileClickInfo({ ...props, processing_status } as TileClickInfo)
         const hlSrc = map.getSource('tiles-highlight-source') as maplibregl.GeoJSONSource | undefined
         hlSrc?.setData({
           type: 'FeatureCollection',

@@ -43,19 +43,25 @@ def get_processing_status_gdf(
 ) -> gpd.GeoDataFrame:
     """Return all tiles annotated with runtime processing status and per-year stats.
 
-    Reads ``tile_list.geojson`` (whose ``processing_status`` column contains
-    ``"process"`` or ``"skip"``) and merges with the Icechunk commit history to
-    assign a runtime status to each tile.
+    Reads ``tile_list.geojson`` (whose ``to_process`` boolean column marks
+    tiles that should be processed) and merges with the Icechunk commit
+    history to assign a runtime ``processing_status`` to each tile.
 
-    Runtime ``status`` values:
-        ``"processed"``   — "process" tile, data written to store
-        ``"nodata"``      — "process" tile, no MODIS input found; empty commit made
-        ``"unprocessed"`` — "process" tile, no commit found yet
-        ``"skip"``        — tile marked "skip" in tile_list.geojson
+    ``processing_status`` values:
+        ``"processed"``   — tile flagged for processing; data written to store
+        ``"nodata"``      — tile flagged for processing; no MODIS input found
+        ``"unprocessed"`` — tile flagged for processing; no commit yet
+        ``"skip"``        — tile not flagged for processing (e.g. ocean)
 
-    Per-year columns ``{year}_valid_pixels`` and ``{year}_input_obs`` (int or NaN)
-    are added for each year in ``years``. Legacy commits (old ``h10v04`` format)
-    are treated as ``"processed"`` with NaN stats.
+    ``processing_notes`` — the special note from the commit message, or
+        ``None`` for skipped / unprocessed tiles and tiles with no note.
+
+    Per-year columns ``{year}_valid_pixels`` and ``{year}_input_obs`` (int or
+    NaN) are added for each year in ``years``. Legacy commits (old
+    ``h10v04`` format) are treated as ``"processed"`` with NaN stats.
+
+    Column order: tile, h, v, processing_status, processing_notes, land,
+    to_process, tile_notes, then per-year stats, then any remaining columns.
     """
     tile_gdf = gpd.read_file(tile_list_path).copy()
 
@@ -89,8 +95,8 @@ def get_processing_status_gdf(
                 (h, v), {"special_note": SPECIAL_NOTE_NONE, "year_stats": {}}
             )
 
-    def _status(row):
-        if row["processing_status"] == "skip":
+    def _processing_status(row):
+        if not bool(row["to_process"]):
             return "skip"
         key = (int(row["h"]), int(row["v"]))
         if key not in commit_info:
@@ -99,7 +105,18 @@ def get_processing_status_gdf(
             return "nodata"
         return "processed"
 
-    tile_gdf["status"] = tile_gdf.apply(_status, axis=1)
+    def _processing_notes(row):
+        if not bool(row["to_process"]):
+            return None
+        key = (int(row["h"]), int(row["v"]))
+        info = commit_info.get(key)
+        if info is None:
+            return None
+        note = info["special_note"]
+        return None if note == SPECIAL_NOTE_NONE else note
+
+    tile_gdf["processing_status"] = tile_gdf.apply(_processing_status, axis=1)
+    tile_gdf["processing_notes"] = tile_gdf.apply(_processing_notes, axis=1)
 
     for yr in years:
 
@@ -119,6 +136,26 @@ def get_processing_status_gdf(
 
         tile_gdf[f"{yr}_valid_pixels"] = tile_gdf.apply(_valid_pixels, axis=1)
         tile_gdf[f"{yr}_input_obs"] = tile_gdf.apply(_input_obs, axis=1)
+
+    # Reorder columns: canonical fixed cols first, then per-year stats, then
+    # any remaining columns, with geometry always last (GeoDataFrame convention).
+    fixed = [
+        "tile", "h", "v",
+        "processing_status", "processing_notes",
+        "land", "to_process", "tile_notes",
+    ]
+    yr_cols = [
+        col
+        for yr in years
+        for col in (f"{yr}_valid_pixels", f"{yr}_input_obs")
+    ]
+    present_fixed = [c for c in fixed if c in tile_gdf.columns]
+    present_yr = [c for c in yr_cols if c in tile_gdf.columns]
+    remaining = [
+        c for c in tile_gdf.columns
+        if c not in present_fixed + present_yr + ["geometry"]
+    ]
+    tile_gdf = tile_gdf[present_fixed + present_yr + remaining + ["geometry"]]
 
     return tile_gdf
 
@@ -196,9 +233,9 @@ class Config:
         return gpd.read_file(self.TILE_LIST_PATH)
 
     def get_process_tiles(self) -> gpd.GeoDataFrame:
-        """Return tiles flagged for processing (processing_status == 'process')."""
+        """Return tiles flagged for processing (to_process == True)."""
         gdf = self.load_tile_list()
-        return gdf[gdf["processing_status"] == "process"].copy()
+        return gdf[gdf["to_process"].astype(bool)].copy()
 
     @staticmethod
     def tile_id(h: int, v: int) -> str:

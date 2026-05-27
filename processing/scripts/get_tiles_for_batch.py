@@ -92,7 +92,9 @@ def main():
         status_gdf = get_processing_status_gdf(
             repo, config.TILE_LIST_PATH, config.years
         )
-        gdf = status_gdf[status_gdf["status"] == "unprocessed"].copy()
+        gdf = status_gdf[
+            status_gdf["processing_status"] == "unprocessed"
+        ].copy()
     else:
         # All tiles flagged for processing in tile_list.geojson, regardless of
         # Icechunk history (useful for re-running everything from scratch).
