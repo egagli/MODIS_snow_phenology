@@ -39,9 +39,6 @@ jobs:
       - name: Install package
         run: pixi run -e ci pip install -e .
 
-      - name: Print config
-        run: pixi run -e ci python processing/scripts/print_config.py --config-file ${{ inputs.config_file }}
-
       - name: Process tile
         env:
           EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}

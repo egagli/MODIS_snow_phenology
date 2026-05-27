@@ -3,11 +3,13 @@ Process a single MODIS tile and write results to the Icechunk store.
 
 Usage:
     python process_single_tile.py --h 10 --v 4
-    python process_single_tile.py --h 10 --v 4 --config-file config/config_v1.txt
+    python process_single_tile.py --h 10 --v 4 \
+        --config-file config/config_v1.txt
 
 On success: commits data to Icechunk with message:
     "Tile(h=10, v=4) processed. Stats: [...] Special note: None"
-On no-data: commits an empty snapshot with Special note set to SPECIAL_NOTE_NODATA
+On no-data: commits an empty snapshot with Special note set to
+    SPECIAL_NOTE_NODATA
 On failure: exits nonzero; no Icechunk commit (store remains clean)
 """
 
@@ -29,13 +31,13 @@ import pandas as pd
 import xarray as xr
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from modis_snow_phenology import processing
-from modis_snow_phenology.config import (
+from modis_snow_phenology import processing  # noqa: E402
+from modis_snow_phenology.config import (  # noqa: E402
     Config,
     SPECIAL_NOTE_NONE,
     SPECIAL_NOTE_NODATA,
 )
-from modis_snow_phenology.processing import _rss_mb
+from modis_snow_phenology.processing import _rss_mb  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,13 +52,24 @@ log = logging.getLogger("process_single_tile")
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--h", type=int, required=True, dest="h", help="MODIS horizontal tile index (0-35)")
-    p.add_argument("--v", type=int, required=True, dest="v", help="MODIS vertical tile index (0-17)")
-    p.add_argument("--config-file", default="config/config_v1.txt", help="Path to config file")
+    p.add_argument(
+        "--h", type=int, required=True, dest="h",
+        help="MODIS horizontal tile index (0-35)",
+    )
+    p.add_argument(
+        "--v", type=int, required=True, dest="v",
+        help="MODIS vertical tile index (0-17)",
+    )
+    p.add_argument(
+        "--config-file", default="config/config_v1.txt",
+        help="Path to config file",
+    )
     return p.parse_args()
 
 
-def assign_water_year_coords(da: xr.DataArray, hemisphere: str) -> xr.DataArray:
+def assign_water_year_coords(
+    da: xr.DataArray, hemisphere: str
+) -> xr.DataArray:
     def datetime_to_wy(dt, hemisphere):
         if hemisphere == "northern":
             return dt.year + 1 if dt.month >= 10 else dt.year
@@ -65,9 +78,11 @@ def assign_water_year_coords(da: xr.DataArray, hemisphere: str) -> xr.DataArray:
 
     def datetime_to_dowy(dt, hemisphere):
         if hemisphere == "northern":
-            wy_start = pd.Timestamp(f"{dt.year - 1 if dt.month < 10 else dt.year}-10-01")
+            yr = dt.year - 1 if dt.month < 10 else dt.year
+            wy_start = pd.Timestamp(f"{yr}-10-01")
         else:
-            wy_start = pd.Timestamp(f"{dt.year if dt.month >= 4 else dt.year - 1}-04-01")
+            yr = dt.year if dt.month >= 4 else dt.year - 1
+            wy_start = pd.Timestamp(f"{yr}-04-01")
         return (dt - wy_start).days + 1
 
     times = pd.DatetimeIndex(da.time.values)
@@ -83,22 +98,24 @@ def process_water_year(
 ) -> tuple[xr.Dataset, int] | None:
     """
     Fetch, cloud-fill, and compute snow metrics for a single water year.
-    Fetches 1 prior and 1 following water year so bfill/ffill have full context.
-    Returns (metrics_dataset, input_obs) or None if there are too few observations.
+    Fetches 1 prior and 1 following water year so bfill/ffill have context.
+    Returns (metrics_dataset, input_obs) or None if too few observations.
     """
     if hemisphere == "northern":
-        # NH WY spans Oct(wy-1) – Sep(wy); fetch Oct(wy-2) – Sep(wy+1) for context
-        # (wy-2)-10-01 = start of the prior water year WY(wy-1)
+        # NH WY spans Oct(wy-1)–Sep(wy); fetch one extra year each side
         fetch_start = f"{wy - 2}-10-01"
         fetch_end_extended = f"{wy + 1}-09-30"
         fetch_end_fallback = f"{wy}-09-30"
     else:
-        # SH WY spans Apr(wy) – Mar(wy+1); fetch Apr(wy-1) – Mar(wy+2) for context
+        # SH WY spans Apr(wy)–Mar(wy+1); fetch one extra year each side
         fetch_start = f"{wy - 1}-04-01"
         fetch_end_extended = f"{wy + 2}-03-31"
         fetch_end_fallback = f"{wy + 1}-03-31"
 
-    log.info(f"WY{wy}: fetching {fetch_start} to {fetch_end_extended} (RSS={_rss_mb()} MB)")
+    log.info(
+        "WY%d: fetching %s to %s (RSS=%d MB)",
+        wy, fetch_start, fetch_end_extended, _rss_mb(),
+    )
     try:
         raw = processing.get_modis_MOD10A2_max_snow_extent(
             vertical_tile=v,
@@ -109,11 +126,11 @@ def process_water_year(
         )
     except ValueError:
         # Extended window (wy+1) likely exceeds archive coverage (MODIS Terra
-        # decommissioned Nov 2024); fall back to fetching only through end of
-        # the target WY, losing future bfill context for this year only.
+        # decommissioned Nov 2024); fall back to end of target WY only.
         log.warning(
-            f"WY{wy}: extended fetch to {fetch_end_extended} returned no data; "
-            f"retrying with fallback end {fetch_end_fallback}"
+            "WY%d: extended fetch to %s returned no data; "
+            "retrying with fallback end %s",
+            wy, fetch_end_extended, fetch_end_fallback,
         )
         raw = processing.get_modis_MOD10A2_max_snow_extent(
             vertical_tile=v,
@@ -122,65 +139,104 @@ def process_water_year(
             end_date=fetch_end_fallback,
             chunks={"time": -1, "x": 2400, "y": 2400},
         )
-    log.info(f"WY{wy}: raw fetched, shape={raw.shape}, dtype={raw.dtype}, RSS={_rss_mb()} MB")
+    log.info(
+        "WY%d: raw fetched, shape=%s, dtype=%s, RSS=%d MB",
+        wy, raw.shape, raw.dtype, _rss_mb(),
+    )
 
     # Polar night correction: for Arctic/Antarctic tiles, the sensor records
     # no-snow (25) during winter darkness. Replace those with cloud/fill (255)
     # so that cloud-filling (bfill) handles them instead of treating them as
     # real no-snow observations that would corrupt SDD/SAD.
     if v <= 2 or v >= 15:
-        log.info(f"WY{wy}: applying polar night correction (v={v})")
-        # Avoid .where(...).count(): promotes (T,2400,2400) uint8 → float64 (~6 GB) per call.
-        # Use numpy boolean sums directly — same result, no large intermediate.
+        log.info("WY%d: applying polar night correction (v=%d)", wy, v)
+        # Avoid .where(...).count(): promotes (T,2400,2400) uint8→float64
+        # (~6 GB) per call. Use numpy boolean sums directly instead.
         _rn = raw.values  # (T, Y, X) uint8, already in memory
         _t = raw.time
-        value25_da = xr.DataArray((_rn == 25).sum(axis=(1, 2)), dims="time", coords={"time": _t})
-        value200_da = xr.DataArray((_rn == 200).sum(axis=(1, 2)), dims="time", coords={"time": _t})
+        value25_da = xr.DataArray(
+            (_rn == 25).sum(axis=(1, 2)), dims="time", coords={"time": _t}
+        )
+        value200_da = xr.DataArray(
+            (_rn == 200).sum(axis=(1, 2)), dims="time", coords={"time": _t}
+        )
         no_decision_and_night_counts = xr.DataArray(
-            ((_rn == 1) | (_rn == 11)).sum(axis=(1, 2)), dims="time", coords={"time": _t}
+            ((_rn == 1) | (_rn == 11)).sum(axis=(1, 2)),
+            dims="time", coords={"time": _t},
         )
         del _rn
         land_area_da = value200_da + value25_da
         max_land_pixels = land_area_da.max(dim="time")
         bad_pixel_thresh = int(0.05 * int(max_land_pixels))
-        scenes_with_polar_night = no_decision_and_night_counts > bad_pixel_thresh
+        scenes_with_polar_night = (
+            no_decision_and_night_counts > bad_pixel_thresh
+        )
         scenes_with_polar_night_buffered = (
             scenes_with_polar_night.shift(time=-1).fillna(0)
             | scenes_with_polar_night
             | scenes_with_polar_night.shift(time=1).fillna(0)
         ).astype(int)
-        backward_check = scenes_with_polar_night_buffered.rolling(time=4, center=False).sum() >= 4
-        forward_check = scenes_with_polar_night_buffered[::-1].rolling(time=4, center=False).sum()[::-1] >= 4
-        center_check = scenes_with_polar_night_buffered.rolling(time=4, center=True).sum() >= 4
-        scenes_with_polar_night_buffered_filtered = scenes_with_polar_night_buffered.where(
-            backward_check | forward_check | center_check, other=0
-        ).astype(bool).chunk(dict(time=-1))
+        backward_check = (
+            scenes_with_polar_night_buffered
+            .rolling(time=4, center=False).sum() >= 4
+        )
+        forward_check = (
+            scenes_with_polar_night_buffered[::-1]
+            .rolling(time=4, center=False).sum()[::-1] >= 4
+        )
+        center_check = (
+            scenes_with_polar_night_buffered
+            .rolling(time=4, center=True).sum() >= 4
+        )
+        scenes_with_polar_night_buffered_filtered = (
+            scenes_with_polar_night_buffered
+            .where(backward_check | forward_check | center_check, other=0)
+            .astype(bool)
+            .chunk(dict(time=-1))
+        )
         scenes_with_polar_night_buffered_filtered_complete = (
-            scenes_with_polar_night_buffered_filtered.where(lambda x: x == 1)
-            .interpolate_na(dim="time", method="nearest", max_gap=pd.Timedelta(days=80))
+            scenes_with_polar_night_buffered_filtered
+            .where(lambda x: x == 1)
+            .interpolate_na(
+                dim="time", method="nearest",
+                max_gap=pd.Timedelta(days=80),
+            )
             .where(lambda x: x == 1, other=0)
             .astype(bool)
         )
         raw = raw.where(
-            ~((raw == 25) & scenes_with_polar_night_buffered_filtered_complete), other=255
+            ~(
+                (raw == 25)
+                & scenes_with_polar_night_buffered_filtered_complete
+            ),
+            other=255,
         )
 
-    log.info(f"WY{wy}: binarizing (RSS={_rss_mb()} MB)...")
+    log.info("WY%d: binarizing (RSS=%d MB)...", wy, _rss_mb())
     binary = processing.binarize_with_cloud_filling(raw)
-    del raw  # 794 MB uint8 — not used after binarize; free before align_wy_start
-    log.info(f"WY{wy}: binarize done (RSS={_rss_mb()} MB)")
+    # 794 MB uint8 — not used after binarize; free before align_wy_start
+    del raw
+    log.info("WY%d: binarize done (RSS=%d MB)", wy, _rss_mb())
     binary = assign_water_year_coords(binary, hemisphere)
     binary_aligned = processing.align_wy_start(binary, hemisphere=hemisphere)
     del binary  # 794 MB bool — not used after align_wy_start
 
-    # Use isel — .where(cond, drop=True) on int16 promotes to float64 (8×), causing OOM.
-    wy_da = binary_aligned.isel(time=(binary_aligned.water_year.values == wy))
+    # Use isel — .where(cond, drop=True) on int16 promotes to float64 (8×),
+    # causing OOM.
+    wy_da = binary_aligned.isel(
+        time=(binary_aligned.water_year.values == wy)
+    )
     if len(wy_da.time) < 5:
-        log.warning(f"WY{wy}: only {len(wy_da.time)} observations, skipping")
+        log.warning(
+            "WY%d: only %d observations, skipping", wy, len(wy_da.time)
+        )
         return None
 
     input_obs = len(wy_da.time)
-    log.info(f"WY{wy}: computing snow metrics ({input_obs} obs, RSS={_rss_mb()} MB)")
+    log.info(
+        "WY%d: computing snow metrics (%d obs, RSS=%d MB)",
+        wy, input_obs, _rss_mb(),
+    )
     metrics = processing.get_max_consec_snow_days_SAD_SDD_one_WY(wy_da)
     return metrics.expand_dims(water_year=[wy]), input_obs
 
@@ -192,7 +248,8 @@ def _write_step_summary(tile_id, wy_stats, snapshot_id, *, nodata=False):
     lines = [f"## Tile {tile_id}", ""]
     if nodata:
         lines += [
-            "⚠️ **No input data found for any water year — empty commit made.**",
+            "⚠️ **No input data found for any water year"
+            " — empty commit made.**",
             "",
         ]
     else:
@@ -213,10 +270,10 @@ def _write_step_summary(tile_id, wy_stats, snapshot_id, *, nodata=False):
 
 
 def main():
-    # Dump Python+C tracebacks on SIGSEGV/SIGABRT/SIGFPE/SIGBUS (C-level crashes).
+    # Dump Python+C tracebacks on SIGSEGV/SIGABRT/SIGFPE/SIGBUS.
     faulthandler.enable()
 
-    # Log and exit cleanly on SIGTERM so the runner's "operation canceled" has context.
+    # Log and exit cleanly on SIGTERM so the runner has context.
     def _sigterm_handler(signum, frame):
         log.error("Received SIGTERM — process is being terminated externally")
         traceback.print_stack(frame)
@@ -229,7 +286,8 @@ def main():
     tile_id = Config.tile_id(h, v)
     hemisphere = Config.hemisphere_for_v(v)
 
-    log.info(f"Processing tile {tile_id} ({hemisphere} hemisphere) — config: {config.CONFIG_NAME}")
+    log.info("Config:\n%s", config)
+    log.info("Processing tile %s (%s hemisphere)", tile_id, hemisphere)
     start = datetime.now(timezone.utc)
 
     storage = icechunk.azure_storage(
@@ -247,17 +305,20 @@ def main():
     )
 
     # Read exact store coordinates for this tile's slice.
-    # STAC-derived coordinates have float imprecision; we snap to the store's
+    # STAC-derived coordinates have float imprecision; snap to the store's
     # exact values so that region='auto' can match coordinates.
     log.info("Reading store coordinates for tile region...")
     repo_ro = icechunk.Repository.open(storage, config=repo_config)
     session_ro = repo_ro.readonly_session("main")
-    ds_store = xr.open_zarr(session_ro.store, zarr_format=3, consolidated=False)
-    store_y = ds_store.y[v * 2400 : (v + 1) * 2400].values
-    store_x = ds_store.x[h * 2400 : (h + 1) * 2400].values
+    ds_store = xr.open_zarr(
+        session_ro.store, zarr_format=3, consolidated=False
+    )
+    store_y = ds_store.y[v * 2400: (v + 1) * 2400].values
+    store_x = ds_store.x[h * 2400: (h + 1) * 2400].values
 
     target_wys = np.arange(config.WY_START, config.WY_END + 1)
-    pending_writes = []  # list of (wy, ds_write, input_obs) — kept in memory for commit retries
+    # list of (wy, ds_write, input_obs) — kept in memory for commit retries
+    pending_writes = []
     written_wys = []
 
     for wy in target_wys:
@@ -267,12 +328,14 @@ def main():
         metrics, input_obs = result
 
         # Snap tile coordinates to store's exact values
-        if not (np.allclose(store_y, metrics.y.values, atol=1.0) and
-                np.allclose(store_x, metrics.x.values, atol=1.0)):
+        y_ok = np.allclose(store_y, metrics.y.values, atol=1.0)
+        x_ok = np.allclose(store_x, metrics.x.values, atol=1.0)
+        if not (y_ok and x_ok):
+            y_diff = np.max(np.abs(store_y - metrics.y.values))
+            x_diff = np.max(np.abs(store_x - metrics.x.values))
             raise ValueError(
                 f"WY{wy}: tile coordinates do not match store grid "
-                f"(max y diff: {np.max(np.abs(store_y - metrics.y.values)):.2f} m, "
-                f"max x diff: {np.max(np.abs(store_x - metrics.x.values)):.2f} m)"
+                f"(max y diff: {y_diff:.2f} m, max x diff: {x_diff:.2f} m)"
             )
         metrics = metrics.assign_coords(y=store_y, x=store_x)
 
@@ -287,7 +350,10 @@ def main():
     if not written_wys:
         # No valid data for any water year — commit an empty snapshot so this
         # tile is marked as attempted and skipped on future re-runs.
-        log.warning(f"No water years with data for tile {tile_id} — committing nodata marker")
+        log.warning(
+            "No water years with data for tile %s — committing nodata marker",
+            tile_id,
+        )
         commit_message = (
             f"Tile(h={h}, v={v}) processed. "
             f"Stats: [] "
@@ -302,27 +368,32 @@ def main():
                     rebase_with=icechunk.ConflictDetector(),
                     allow_empty=True,
                 )
-                log.info(f"Committed nodata marker -> {snapshot_id}")
+                log.info("Committed nodata marker -> %s", snapshot_id)
                 break
             except Exception as exc:
                 delay = random.uniform(3, 10)
-                log.warning(f"Conflict on nodata commit, retrying in {delay:.1f}s: {exc}")
+                log.warning(
+                    "Conflict on nodata commit, retrying in %.1fs: %s",
+                    delay, exc,
+                )
                 time.sleep(delay)
         _write_step_summary(tile_id, {}, snapshot_id, nodata=True)
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-        log.info(f"Done (nodata). Total time: {elapsed:.1f}s")
+        log.info("Done (nodata). Total time: %.1fs", elapsed)
         return
 
     skipped = set(target_wys) - set(written_wys)
     if skipped:
-        log.warning(f"Skipped WYs (insufficient observations): {sorted(skipped)}")
+        log.warning(
+            "Skipped WYs (insufficient observations): %s", sorted(skipped)
+        )
 
     # Build per-WY stats for the commit message.
-    # max_consec_snow_days is int16; fill value is np.iinfo(np.int16).min (-32768)
-    # for ocean/no-data pixels; land pixels with no snow have value 0.
-    # "valid_pixels" = pixels that had at least 1 consecutive snow day (> 0).
-    # np.isnan() always returns False for integer arrays, so we check the
-    # sentinel fill value and zero explicitly.
+    # max_consec_snow_days is int16; fill value = np.iinfo(np.int16).min
+    # (-32768) for ocean/no-data; land pixels with no snow have value 0.
+    # "valid_pixels" = pixels with at least 1 consecutive snow day (> 0).
+    # np.isnan() always returns False for integer arrays, so we compare
+    # against the sentinel fill value and zero explicitly.
     wy_stats = {}
     for wy, ds_write, input_obs in pending_writes:
         mcsd = ds_write["max_consec_snow_days"]
@@ -348,31 +419,36 @@ def main():
     )
 
     # Write all WYs then commit. ConflictDetector handles concurrent commits
-    # from parallel matrix jobs: since each job writes a unique non-overlapping
-    # tile region, there are never real data conflicts and Icechunk rebases
-    # automatically without needing to re-write any data.
-    log.info(f"Writing {len(pending_writes)} WY(s) to store...")
+    # from parallel matrix jobs: since each job writes a unique tile region,
+    # there are never real data conflicts and Icechunk rebases automatically.
+    log.info("Writing %d WY(s) to store...", len(pending_writes))
     while True:
         try:
             repo = icechunk.Repository.open(storage, config=repo_config)
             session = repo.writable_session("main")
             for wy, ds_write, _ in pending_writes:
-                log.info(f"WY{wy}: writing...")
-                ds_write.to_zarr(session.store, region="auto", mode="r+", zarr_format=3)
+                log.info("WY%d: writing...", wy)
+                ds_write.to_zarr(
+                    session.store, region="auto", mode="r+", zarr_format=3
+                )
             snapshot_id = session.commit(
                 commit_message, rebase_with=icechunk.ConflictDetector()
             )
-            log.info(f"Committed: '{commit_message[:80]}...' -> {snapshot_id}")
+            log.info(
+                "Committed: '%s...' -> %s", commit_message[:80], snapshot_id
+            )
             break
         except Exception as exc:
             delay = random.uniform(3, 10)
-            log.warning(f"Conflict detected, retrying in {delay:.1f}s: {exc}")
+            log.warning(
+                "Conflict detected, retrying in %.1fs: %s", delay, exc
+            )
             time.sleep(delay)
 
     _write_step_summary(tile_id, wy_stats, snapshot_id)
 
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-    log.info(f"Done. Total time: {elapsed:.1f}s")
+    log.info("Done. Total time: %.1fs", elapsed)
 
 
 if __name__ == "__main__":

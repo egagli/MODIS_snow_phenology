@@ -7,8 +7,8 @@ development, copy config_v1.txt to config_with_secrets_v1.txt, fill in the
 credentials, and pass that path instead (it is gitignored).
 
 Usage:
-    config = Config("config/config_v1.txt")               # CI: credentials from env vars
-    config = Config("config/config_with_secrets_v1.txt")  # local: literal credentials
+    config = Config("config/config_v1.txt")              # CI: env vars
+    config = Config("config/config_with_secrets_v1.txt") # local: literal
 """
 
 import os
@@ -20,15 +20,16 @@ import icechunk
 
 REPO_ROOT = Path(__file__).parent.parent
 
-# Special note values embedded in commit messages (mirrors demo repo convention).
+# Special note values embedded in commit messages.
 SPECIAL_NOTE_NONE = "None"
 SPECIAL_NOTE_NODATA = (
     "No input data found for any year, therefore no output written to tile."
 )
 
-# New-format commit: "Tile(h=10, v=4) processed. Stats: [...] Special note: ..."
+# New-format: "Tile(h=10, v=4) processed. Stats: [...] Special note: ..."
 _NEW_MSG_RE = re.compile(
-    r"Tile\(h=(\d+), v=(\d+)\) processed\. Stats: \[([^\]]*)\] Special note: (.+)"
+    r"Tile\(h=(\d+), v=(\d+)\) processed\."
+    r" Stats: \[([^\]]*)\] Special note: (.+)"
 )
 # Per-WY stat entry inside the Stats [...] list
 _STAT_RE = re.compile(
@@ -41,7 +42,7 @@ _OLD_MSG_RE = re.compile(r"^(h\d{2}v\d{2}): processed")
 def get_processing_status_gdf(
     repo, tile_list_path: Path, years: list[int]
 ) -> gpd.GeoDataFrame:
-    """Return all tiles annotated with runtime processing status and per-year stats.
+    """Return all tiles with runtime processing status and per-year stats.
 
     Reads ``tile_list.geojson`` (whose ``to_process`` boolean column marks
     tiles that should be processed) and merges with the Icechunk commit
@@ -125,20 +126,23 @@ def get_processing_status_gdf(
             info = commit_info.get(key)
             if info is None:
                 return float("nan")
-            return info["year_stats"].get(yr, {}).get("valid_pixels", float("nan"))
+            return info["year_stats"].get(yr, {}).get(
+                "valid_pixels", float("nan")
+            )
 
         def _input_obs(row, yr=yr):
             key = (int(row["h"]), int(row["v"]))
             info = commit_info.get(key)
             if info is None:
                 return float("nan")
-            return info["year_stats"].get(yr, {}).get("input_obs", float("nan"))
+            return info["year_stats"].get(yr, {}).get(
+                "input_obs", float("nan")
+            )
 
         tile_gdf[f"{yr}_valid_pixels"] = tile_gdf.apply(_valid_pixels, axis=1)
         tile_gdf[f"{yr}_input_obs"] = tile_gdf.apply(_input_obs, axis=1)
 
-    # Reorder columns: canonical fixed cols first, then per-year stats, then
-    # any remaining columns, with geometry always last (GeoDataFrame convention).
+    # Reorder: fixed cols → per-year stats → remaining → geometry last.
     fixed = [
         "tile", "h", "v",
         "processing_status", "processing_notes",
@@ -203,6 +207,22 @@ class Config:
             int(x) for x in raw["INNER_CHUNK_SHAPE"].split(",")
         )
 
+    def __str__(self) -> str:
+        sas = self.AZURE_STORAGE_SAS_TOKEN
+        masked_sas = (sas[:8] + "...") if len(sas) > 8 else "***"
+        return (
+            f"Config({self.CONFIG_NAME} v{self.VERSION})\n"
+            f"  AZURE_STORAGE_ACCOUNT  : {self.AZURE_STORAGE_ACCOUNT}\n"
+            f"  AZURE_CONTAINER        : {self.AZURE_CONTAINER}\n"
+            f"  AZURE_STORAGE_SAS_TOKEN: {masked_sas}\n"
+            f"  ICECHUNK_PREFIX        : {self.ICECHUNK_PREFIX}\n"
+            f"  MULTISCALE_PREFIX      : {self.MULTISCALE_PREFIX}\n"
+            f"  TILE_LIST_PATH         : {self.TILE_LIST_PATH}\n"
+            f"  WY_START / WY_END      : {self.WY_START} / {self.WY_END}\n"
+            f"  SHARD_SHAPE            : {self.SHARD_SHAPE}\n"
+            f"  INNER_CHUNK_SHAPE      : {self.INNER_CHUNK_SHAPE}"
+        )
+
     @property
     def years(self) -> list[int]:
         """All water years covered by this config, inclusive."""
@@ -219,7 +239,7 @@ class Config:
     def open_icechunk_repo(
         self, config: "icechunk.RepositoryConfig | None" = None
     ):
-        """Open the Icechunk repository for this config's Azure storage location."""
+        """Open the Icechunk repository for this config's Azure storage."""
         storage = icechunk.azure_storage(
             account=self.AZURE_STORAGE_ACCOUNT,
             container=self.AZURE_CONTAINER,
@@ -229,7 +249,7 @@ class Config:
         return icechunk.Repository.open(storage, config=config)
 
     def load_tile_list(self) -> gpd.GeoDataFrame:
-        """Load the static tile registry GeoDataFrame from tile_list.geojson."""
+        """Load the static tile registry from tile_list.geojson."""
         return gpd.read_file(self.TILE_LIST_PATH)
 
     def get_process_tiles(self) -> gpd.GeoDataFrame:
