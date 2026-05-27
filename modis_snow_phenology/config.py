@@ -69,7 +69,7 @@ def get_processing_status_gdf(
     Column order: tile, h, v, processing_status, processing_notes, land,
     to_process, tile_notes, then per-year stats, then any remaining columns.
     """
-    tile_gdf = gpd.read_file(tile_list_path).set_crs(MODIS_SINUSOIDAL_CRS).copy()
+    tile_gdf = gpd.read_file(tile_list_path).set_crs(MODIS_SINUSOIDAL_CRS, allow_override=True).copy()
 
     # Walk commit history once; build a dict keyed by (h, v) int tuples.
     commit_info: dict[tuple[int, int], dict] = {}
@@ -255,7 +255,7 @@ class Config:
 
     def load_tile_list(self) -> gpd.GeoDataFrame:
         """Load the static tile registry from tile_list.geojson."""
-        return gpd.read_file(self.TILE_LIST_PATH).set_crs(MODIS_SINUSOIDAL_CRS)
+        return gpd.read_file(self.TILE_LIST_PATH).set_crs(MODIS_SINUSOIDAL_CRS, allow_override=True)
 
     def get_process_tiles(self) -> gpd.GeoDataFrame:
         """Return tiles flagged for processing (to_process == True)."""
