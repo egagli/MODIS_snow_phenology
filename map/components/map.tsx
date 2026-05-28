@@ -183,6 +183,16 @@ function setBasemapFillVisibility(map: maplibregl.Map, visible: boolean) {
   })
 }
 
+function setBasemapSymbolVisibility(map: maplibregl.Map, visible: boolean) {
+  const vis = visible ? 'visible' : 'none'
+  map.getStyle()?.layers.forEach((layer) => {
+    if (OWN_LAYER_IDS.has(layer.id)) return
+    if (layer.type === 'symbol') {
+      try { map.setLayoutProperty(layer.id, 'visibility', vis) } catch {}
+    }
+  })
+}
+
 function isValidValue(raw: unknown): raw is number {
   return typeof raw === 'number' && !isNaN(raw) && raw !== FILL_VALUE && raw >= 0
 }
@@ -330,7 +340,7 @@ export const Map = () => {
 
       map.addLayer(
         { id: 'tiles-fill', type: 'fill', source: 'tiles-status',
-          paint: { 'fill-color': fillColor, 'fill-opacity': 0.1 },
+          paint: { 'fill-color': fillColor, 'fill-opacity': 0.25 },
           layout: { visibility: 'none' } } as any, beforeLabel
       )
       map.addLayer(
@@ -419,6 +429,7 @@ export const Map = () => {
     map.setLayoutProperty('esri-imagery', 'visibility', basemap === 'satellite' ? 'visible' : 'none')
     map.setLayoutProperty('topo', 'visibility', basemap === 'topography' ? 'visible' : 'none')
     setBasemapFillVisibility(map, basemap === 'dark')
+    setBasemapSymbolVisibility(map, basemap !== 'topography')
   }, [basemap, isMapLoaded])
 
   // Tiles overlay toggle

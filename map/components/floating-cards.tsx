@@ -242,9 +242,9 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
   const setBasemap = useStore((s) => s.setBasemap)
 
   const BASEMAP_OPTS: { label: string; value: Basemap }[] = [
-    { label: 'Topography', value: 'topography' },
-    { label: 'Satellite',  value: 'satellite'  },
-    { label: 'Dark',       value: 'dark'       },
+    { label: 'Dark',        value: 'dark'        },
+    { label: 'Satellite',   value: 'satellite'   },
+    { label: 'Topography',  value: 'topography'  },
   ]
 
   return (
@@ -505,7 +505,7 @@ export const FloatingCards = () => {
   const CARD_RIGHT = 16
   const TOP_RIGHT_TOP = 16
   const TOP_CARD_HEIGHT = 138
-  const COMBINED_CARD_TOP = TOP_RIGHT_TOP + TOP_CARD_HEIGHT + 14
+  const COMBINED_CARD_TOP = TOP_RIGHT_TOP + TOP_CARD_HEIGHT + 8
 
   return (
     <>
@@ -513,7 +513,7 @@ export const FloatingCards = () => {
       <WarningToast />
       <TopRightCard right={CARD_RIGHT} top={TOP_RIGHT_TOP} />
       <CombinedInspectorCard right={CARD_RIGHT} top={COMBINED_CARD_TOP} />
-      <ZoomDisplay right={CARD_RIGHT} bottom={32} />
+      <ZoomDisplay right={CARD_RIGHT} bottom={8} />
     </>
   )
 }
