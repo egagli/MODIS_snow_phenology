@@ -176,9 +176,8 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
       .catch(() => {})
   }, [])
 
-  const showTiles    = useStore((s) => s.showTiles)
-  const tileClickInfo = useStore((s) => s.tileClickInfo)
-  const setShowTiles  = useStore((s) => s.setShowTiles)
+  const tileClickInfo    = useStore((s) => s.tileClickInfo)
+  const setShowTiles     = useStore((s) => s.setShowTiles)
   const setTileClickInfo = useStore((s) => s.setTileClickInfo)
   const clickInfo     = useStore((s) => s.clickInfo)
   const waterYearIndex = useStore((s) => s.waterYearIndex)
@@ -187,7 +186,7 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
 
   const handleSetMode = (m: 'point' | 'grid') => {
     setMode(m)
-    if (m === 'grid') setShowTiles(true)
+    setShowTiles(m === 'grid')
   }
 
   return (
@@ -254,15 +253,6 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
         ) : (
           /* ── Processing Grid ─────────────────────────────────── */
           <>
-            {/* Map overlay toggle */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-              {[{ label: 'Show overlay', value: true }, { label: 'Hide overlay', value: false }].map((opt) => (
-                <button key={String(opt.value)} onClick={() => setShowTiles(opt.value)} style={chip(showTiles === opt.value)}>
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-
             {/* Status legend with counts */}
             <div style={sectionLabelStyle}>Status</div>
             {Object.entries(TILE_STATUS_META).map(([key, { label, color }]) => (
