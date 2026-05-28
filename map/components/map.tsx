@@ -10,6 +10,7 @@ import { Protocol } from 'pmtiles'
 import {
   useStore,
   ZARR_URL,
+  TILES_STATUS_URL,
   VARIABLE_CONFIGS,
   type Variable,
   type ClickInfo,
@@ -18,11 +19,6 @@ import {
 
 const MODIS_SINUSOIDAL_PROJ4 =
   '+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +a=6371007.181 +b=6371007.181 +units=m +no_defs'
-
-const TILES_STATUS_URL =
-  process.env.NODE_ENV === 'production'
-    ? '/MODIS_snow_phenology/tiles-status.geojson'
-    : '/tiles-status.geojson'
 
 const ACCENT = '#1dbd8f'
 const FILL_VALUE = -32768
