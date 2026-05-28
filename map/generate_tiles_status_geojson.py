@@ -40,15 +40,14 @@ def main():
     repo = config.open_icechunk_repo()
     gdf = get_processing_status_gdf(repo, config.TILE_LIST_PATH, config.years)
 
-    # tile_list.geojson stores geometries in MODIS sinusoidal (metres), not
-    # WGS84. Because GeoJSON has no CRS field, geopandas silently assigns
-    # EPSG:4326 as the default — override with the real sinusoidal CRS before
-    # reprojecting, otherwise coordinates are written as huge metre values.
-    MODIS_SINU = (
-        "+proj=sinu +lon_0=0 +x_0=0 +y_0=0 "
-        "+a=6371007.181 +b=6371007.181 +units=m +no_defs"
-    )
-    gdf = gdf.set_crs(MODIS_SINU, allow_override=True).to_crs("EPSG:4326")
+    # Densify tile edges in sinusoidal space before reprojecting to WGS84.
+    # Without this, geopandas only transforms the 4 corner vertices and draws
+    # straight lines between them.  Sinusoidal tile edges are curves in WGS84,
+    # so the straight-line approximation distorts tiles at high latitudes and
+    # near the antimeridian.
+    # 50 km segments ≈ 22 points per 1 111 km tile edge.
+    gdf.geometry = gdf.geometry.segmentize(50_000)
+    gdf = gdf.to_crs("EPSG:4326")
 
     # Drop verbose per-year scene-count columns (num_scenes_2000…2026).
     # The map only needs total_num_MOD10A2_scenes for a summary figure.
