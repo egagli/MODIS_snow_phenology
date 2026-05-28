@@ -22,6 +22,44 @@ const MODIS_SINUSOIDAL_PROJ4 =
 
 const ACCENT = '#1dbd8f'
 const FILL_VALUE = -32768
+
+// Inject keyframes for the pulsing marker once at module load.
+if (typeof document !== 'undefined' && !document.getElementById('pulsing-marker-style')) {
+  const s = document.createElement('style')
+  s.id = 'pulsing-marker-style'
+  s.textContent = `
+    @keyframes markerPulse {
+      0%   { transform: translate(-50%,-50%) scale(1); opacity: 0.55; }
+      100% { transform: translate(-50%,-50%) scale(3.5); opacity: 0; }
+    }
+  `
+  document.head.appendChild(s)
+}
+
+function createPulsingMarkerElement(): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.style.cssText = 'position:relative;width:14px;height:14px;'
+
+  const ring = document.createElement('div')
+  ring.style.cssText = `
+    position:absolute;top:50%;left:50%;
+    width:14px;height:14px;border-radius:50%;
+    background:${ACCENT};
+    animation:markerPulse 1.6s ease-out infinite;
+  `
+
+  const dot = document.createElement('div')
+  dot.style.cssText = `
+    position:absolute;top:50%;left:50%;
+    transform:translate(-50%,-50%);
+    width:8px;height:8px;border-radius:50%;
+    background:${ACCENT};border:2px solid #fff;
+  `
+
+  wrap.appendChild(ring)
+  wrap.appendChild(dot)
+  return wrap
+}
 const ALL_VARIABLES = ['SAD_DOWY', 'SDD_DOWY', 'max_consec_snow_days'] as const satisfies readonly Variable[]
 
 // Level-0 spatial constants (from zarr.json spatial:transform for the finest pyramid level).
@@ -422,7 +460,7 @@ export const Map = () => {
       const { lng, lat } = event.lngLat
       lastClickRef.current = { lng, lat }
       markerRef.current?.remove()
-      markerRef.current = new maplibregl.Marker({ color: ACCENT }).setLngLat([lng, lat]).addTo(map)
+      markerRef.current = new maplibregl.Marker({ element: createPulsingMarkerElement(), anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
       requeryAllVariables({ val: false })
     }
     map.on('click', clickHandler)
