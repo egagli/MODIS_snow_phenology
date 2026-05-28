@@ -91,6 +91,87 @@ function formatValue(
 }
 
 // ---------------------------------------------------------------------------
+// OpeningNotice — data reliability modal shown once per session
+// ---------------------------------------------------------------------------
+
+const OPENING_NOTICE_TEXT =
+  'Due to misclassifications inherited from MODIS snow products (e.g., MOD10A1, MOD10A2), ' +
+  'certain regions are prone to false-positive snow identification. These regions include areas ' +
+  'with near-permanent cloud cover (e.g., eastern slopes of Tropical Andes, Congo Rainforest), ' +
+  'turbid and shallow water bodies (especially on the Tibetan Plateau), and salt flats ' +
+  '(e.g., Salar de Uyuni, Salar de Coipasa). Interpret snow phenology results in these regions ' +
+  'with caution.'
+
+const OpeningNotice = () => {
+  const [visible, setVisible] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return !sessionStorage.getItem('data-notice-dismissed')
+  })
+
+  if (!visible) return null
+
+  const dismiss = () => {
+    sessionStorage.setItem('data-notice-dismissed', '1')
+    setVisible(false)
+  }
+
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 50,
+      background: 'rgba(0,0,0,0.55)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 24,
+    }}>
+      <div style={{
+        background: 'rgba(22,25,30,0.98)',
+        border: '1px solid rgba(251,191,36,0.55)',
+        borderRadius: 10,
+        padding: '22px 24px',
+        maxWidth: 520,
+        color: TEXT,
+        fontSize: 13,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <span style={{ fontSize: 18 }}>⚠</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: '#fbbf24' }}>
+            Data Reliability Notice
+          </span>
+        </div>
+        <p style={{ margin: 0, lineHeight: 1.6, color: DIM }}>{OPENING_NOTICE_TEXT}</p>
+        <button
+          onClick={dismiss}
+          style={{
+            marginTop: 18, width: '100%', padding: '8px 0',
+            borderRadius: 5, border: `1px solid ${ACCENT}`,
+            background: ACCENT, color: '#fff',
+            cursor: 'pointer', fontSize: 13, fontWeight: 600,
+          }}
+        >
+          I understand
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ZoomDisplay — live zoom level in bottom-right corner
+// ---------------------------------------------------------------------------
+
+const ZoomDisplay = ({ right, bottom }: { right: number; bottom: number }) => {
+  const zoomLevel = useStore((s) => s.zoomLevel)
+  return (
+    <div style={{
+      position: 'absolute', right, bottom,
+      color: DIM, fontSize: 11, fontFamily: 'monospace',
+      pointerEvents: 'none', userSelect: 'none',
+    }}>
+      zoom {zoomLevel.toFixed(1)}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // WarningToast — artifact zone notification
 // ---------------------------------------------------------------------------
 
@@ -419,9 +500,11 @@ export const FloatingCards = () => {
 
   return (
     <>
+      <OpeningNotice />
       <WarningToast />
       <TopRightCard right={CARD_RIGHT} top={TOP_RIGHT_TOP} />
       <CombinedInspectorCard right={CARD_RIGHT} top={COMBINED_CARD_TOP} />
+      <ZoomDisplay right={CARD_RIGHT} bottom={32} />
     </>
   )
 }

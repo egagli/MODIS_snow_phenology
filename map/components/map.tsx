@@ -30,21 +30,28 @@ const WARNING_ZONES: {
     bbox: [-73, -28, -60, -14],
     minZoom: 4,
     message:
-      'Salt flats in this region (e.g., Salar de Atacama, Salar de Uyuni) are known to cause false-positive snow detections in the MODIS snow product. Data reliability may be reduced.',
+      'Salt flats in this region (e.g., Salar de Uyuni, Salar de Coipasa) are known to cause false-positive snow detections in the MODIS snow product. Interpret snow phenology results in this region with caution.',
   },
   {
-    name: 'Tibetan Plateau — Turbid Lakes',
+    name: 'Tibetan Plateau — Turbid & Shallow Lakes',
     bbox: [78, 27, 105, 38],
     minZoom: 4,
     message:
-      'Turbid water bodies on the Tibetan Plateau can trigger false-positive snow presence in MODIS. Interpret snow phenology results in this region with caution.',
+      'Turbid and shallow water bodies, especially on the Tibetan Plateau can trigger false-positive snow presence in MODIS. Interpret snow phenology results in this region with caution.',
   },
   {
     name: 'Eastern Tropical Andes — Cloud Cover',
     bbox: [-82, -22, -68, 8],
     minZoom: 4,
     message:
-      'Near-permanent cloud cover on the eastern slopes of the tropical Andes leads to frequent cloud–snow misclassification in MODIS. Data in this region may be unreliable.',
+      'Near-permanent cloud cover on the eastern slopes of the tropical Andes leads to frequent cloud–snow misclassification in MODIS. Interpret snow phenology results in this region with caution.',
+  },
+  {
+    name: 'Congo Rainforest — Cloud Cover',
+    bbox: [10, -7, 32, 7],
+    minZoom: 4,
+    message:
+      'Near-permanent cloud cover over the Congo Rainforest leads to frequent cloud–snow misclassification in MODIS. Interpret snow phenology results in this region with caution.',
   },
 ]
 
@@ -227,6 +234,7 @@ export const Map = () => {
   const setClickInfo = useStore((s) => s.setClickInfo)
   const setTileClickInfo = useStore((s) => s.setTileClickInfo)
   const setActiveWarning = useStore((s) => s.setActiveWarning)
+  const setZoomLevel     = useStore((s) => s.setZoomLevel)
 
   const colormapArray = useThemedColormap(colormap, { format: 'hex' })
 
@@ -360,6 +368,7 @@ export const Map = () => {
 
     const check = () => {
       const zoom = map.getZoom()
+      setZoomLevel(zoom)
       const b = map.getBounds()
       const w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth()
       for (const zone of WARNING_ZONES) {
@@ -377,7 +386,7 @@ export const Map = () => {
     map.on('zoomend', check)
     check()
     return () => { map.off('moveend', check); map.off('zoomend', check) }
-  }, [isMapLoaded, setActiveWarning])
+  }, [isMapLoaded, setActiveWarning, setZoomLevel])
 
   // Projection toggle
   useEffect(() => {
@@ -402,7 +411,10 @@ export const Map = () => {
     const v = showTiles ? 'visible' : 'none'
     map.setLayoutProperty('tiles-fill', 'visibility', v)
     map.setLayoutProperty('tiles-outline', 'visibility', v)
-    if (!showTiles) {
+    if (showTiles) {
+      markerRef.current?.remove()
+      markerRef.current = null
+    } else {
       setTileClickInfo(null)
       const hlSrc = map.getSource('tiles-highlight-source') as maplibregl.GeoJSONSource | undefined
       hlSrc?.setData({ type: 'FeatureCollection', features: [] })
@@ -515,6 +527,7 @@ export const Map = () => {
     })
 
     const clickHandler = (event: maplibregl.MapMouseEvent) => {
+      if (useStore.getState().showTiles) return  // grid mode: no marker
       const { lng, lat } = event.lngLat
       lastClickRef.current = { lng, lat }
       markerRef.current?.remove()
