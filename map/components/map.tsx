@@ -45,7 +45,7 @@ function createPulsingMarkerElement(): HTMLElement {
     position:absolute;top:50%;left:50%;
     width:14px;height:14px;border-radius:50%;
     background:${ACCENT};
-    animation:markerPulse 1.6s ease-out infinite;
+    animation:markerPulse 3.0s ease-out infinite;
   `
 
   const dot = document.createElement('div')
