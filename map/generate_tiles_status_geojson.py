@@ -17,6 +17,9 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
+from shapely.geometry import Polygon
+
 REPO_ROOT = Path(__file__).parent.parent
 OUTPUT = Path(__file__).parent / "public" / "tiles-status.geojson"
 
@@ -40,12 +43,25 @@ def main():
     repo = config.open_icechunk_repo()
     gdf = get_processing_status_gdf(repo, config.TILE_LIST_PATH, config.years)
 
-    # Densify tile edges in sinusoidal space before reprojecting to WGS84.
-    # Without this, geopandas only transforms the 4 corner vertices and draws
-    # straight lines between them.  Sinusoidal tile edges are curves in WGS84,
-    # so the straight-line approximation distorts tiles at high latitudes and
-    # near the antimeridian.
-    # 50 km segments ≈ 22 points per 1 111 km tile edge.
+    # Clip tile geometries to the valid sinusoidal domain before reprojecting.
+    # The MODIS tile grid is slightly larger than the sinusoidal ellipse: the
+    # bottom row (v=17) extends past the south pole and corner points on h=0
+    # and h=35 extend outside the valid domain at high latitudes.  pyproj
+    # returns inf for out-of-domain points, corrupting the whole polygon.
+    # We approximate the valid domain as the "peanut" ellipse:
+    #   |x| ≤ R·π·cos(y/R)   (the sinusoidal equal-area boundary)
+    _R = 6_371_007.181
+    _lat = np.linspace(-np.pi / 2, np.pi / 2, 5_000)
+    _y = _R * _lat
+    _x = _R * np.pi * np.cos(_lat)
+    _sinu_domain = Polygon(
+        list(zip(_x, _y)) + list(zip(-_x[::-1], _y[::-1]))
+    )
+    gdf.geometry = gdf.geometry.intersection(_sinu_domain)
+
+    # Densify edges in sinusoidal space so that the curved tile boundaries in
+    # WGS84 are represented accurately after reprojection.
+    # 50 km segments ≈ 22 intermediate points per 1 111 km tile edge.
     gdf.geometry = gdf.geometry.segmentize(50_000)
     gdf = gdf.to_crs("EPSG:4326")
 
