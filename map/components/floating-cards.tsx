@@ -1,5 +1,5 @@
 import React, { CSSProperties, useState, useEffect } from 'react'
-import { useStore, WATER_YEARS, TILES_STATUS_URL, type Variable } from '../lib/store'
+import { useStore, WATER_YEARS, TILES_STATUS_URL, type Variable, type Basemap } from '../lib/store'
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -163,10 +163,13 @@ const ZoomDisplay = ({ right, bottom }: { right: number; bottom: number }) => {
   return (
     <div style={{
       position: 'absolute', right, bottom,
-      color: DIM, fontSize: 11, fontFamily: 'monospace',
+      color: TEXT, fontSize: 13, fontFamily: 'monospace',
       pointerEvents: 'none', userSelect: 'none',
     }}>
-      zoom {zoomLevel.toFixed(1)}
+      {'zoom level: '}
+      <span style={{ display: 'inline-block', width: '4ch', textAlign: 'right' }}>
+        {zoomLevel.toFixed(1)}
+      </span>
     </div>
   )
 }
@@ -234,16 +237,22 @@ const WarningToast = () => {
 
 const TopRightCard = ({ right, top }: { right: number; top: number }) => {
   const globeProjection = useStore((s) => s.globeProjection)
-  const showSatellite = useStore((s) => s.showSatellite)
+  const basemap = useStore((s) => s.basemap)
   const setGlobeProjection = useStore((s) => s.setGlobeProjection)
-  const setShowSatellite = useStore((s) => s.setShowSatellite)
+  const setBasemap = useStore((s) => s.setBasemap)
+
+  const BASEMAP_OPTS: { label: string; value: Basemap }[] = [
+    { label: 'Topography', value: 'topography' },
+    { label: 'Satellite',  value: 'satellite'  },
+    { label: 'Dark',       value: 'dark'       },
+  ]
 
   return (
     <div style={{ ...cardStyle, top, right }}>
       <div style={sectionLabelStyle}>Basemap</div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        {[{ label: 'Dark', value: false }, { label: 'Satellite', value: true }].map((opt) => (
-          <button key={String(opt.value)} onClick={() => setShowSatellite(opt.value)} style={chip(showSatellite === opt.value)}>
+        {BASEMAP_OPTS.map((opt) => (
+          <button key={opt.value} onClick={() => setBasemap(opt.value)} style={chip(basemap === opt.value)}>
             {opt.label}
           </button>
         ))}
@@ -495,8 +504,8 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
 export const FloatingCards = () => {
   const CARD_RIGHT = 16
   const TOP_RIGHT_TOP = 16
-  const TOP_CARD_HEIGHT = 118
-  const COMBINED_CARD_TOP = TOP_RIGHT_TOP + TOP_CARD_HEIGHT + 8
+  const TOP_CARD_HEIGHT = 138
+  const COMBINED_CARD_TOP = TOP_RIGHT_TOP + TOP_CARD_HEIGHT + 14
 
   return (
     <>

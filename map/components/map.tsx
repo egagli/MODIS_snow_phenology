@@ -28,28 +28,28 @@ const WARNING_ZONES: {
   {
     name: 'Salt Flats — Atacama / Altiplano',
     bbox: [-73, -28, -60, -14],
-    minZoom: 4,
+    minZoom: 6,
     message:
       'Salt flats in this region (e.g., Salar de Uyuni, Salar de Coipasa) are known to cause false-positive snow detections in the MODIS snow product. Interpret snow phenology results in this region with caution.',
   },
   {
     name: 'Tibetan Plateau — Turbid & Shallow Lakes',
     bbox: [78, 27, 105, 38],
-    minZoom: 4,
+    minZoom: 6,
     message:
       'Turbid and shallow water bodies, especially on the Tibetan Plateau can trigger false-positive snow presence in MODIS. Interpret snow phenology results in this region with caution.',
   },
   {
     name: 'Eastern Tropical Andes — Cloud Cover',
     bbox: [-82, -22, -68, 8],
-    minZoom: 4,
+    minZoom: 6,
     message:
       'Near-permanent cloud cover on the eastern slopes of the tropical Andes leads to frequent cloud–snow misclassification in MODIS. Interpret snow phenology results in this region with caution.',
   },
   {
     name: 'Congo Rainforest — Cloud Cover',
     bbox: [10, -7, 32, 7],
-    minZoom: 4,
+    minZoom: 6,
     message:
       'Near-permanent cloud cover over the Congo Rainforest leads to frequent cloud–snow misclassification in MODIS. Interpret snow phenology results in this region with caution.',
   },
@@ -169,7 +169,7 @@ const mapTheme = {
 let pmtilesRegistered = false
 
 const OWN_LAYER_IDS = new Set([
-  'zarr-layer', 'esri-imagery',
+  'zarr-layer', 'esri-imagery', 'topo',
   'tiles-fill', 'tiles-outline', 'tiles-highlight', 'tiles-highlight-outline',
 ])
 
@@ -228,7 +228,7 @@ export const Map = () => {
   const globeProjection = useStore((s) => s.globeProjection)
   const sidebarWidth = useStore((s) => s.sidebarWidth)
   const loadingState = useStore((s) => s.loadingState)
-  const showSatellite = useStore((s) => s.showSatellite)
+  const basemap = useStore((s) => s.basemap)
   const showTiles = useStore((s) => s.showTiles)
   const setLoadingState = useStore((s) => s.setLoadingState)
   const setClickInfo = useStore((s) => s.setClickInfo)
@@ -255,7 +255,13 @@ export const Map = () => {
       source: 'esri-imagery',
       layout: { visibility: 'none' as const },
     }
-    const styleLayers = [pmLayers[0], satLayer, ...pmLayers.slice(1)]
+    const topoLayer = {
+      id: 'topo',
+      type: 'raster' as const,
+      source: 'topo',
+      layout: { visibility: 'none' as const },
+    }
+    const styleLayers = [pmLayers[0], satLayer, topoLayer, ...pmLayers.slice(1)]
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
@@ -281,6 +287,16 @@ export const Map = () => {
             maxzoom: 19,
             attribution:
               'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+          },
+          topo: {
+            type: 'raster',
+            tiles: [
+              'https://tile.opentopomap.org/{z}/{x}/{y}.png',
+            ],
+            tileSize: 256,
+            maxzoom: 17,
+            attribution:
+              'Map data: &copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
           },
         },
         layers: styleLayers,
@@ -396,13 +412,14 @@ export const Map = () => {
     )
   }, [globeProjection, isMapLoaded])
 
-  // Satellite toggle — hide all basemap fill/background layers to avoid masking satellite
+  // Basemap toggle — satellite/topo hide the vector basemap fills to avoid masking
   useEffect(() => {
     if (!mapRef.current || !isMapLoaded) return
     const map = mapRef.current
-    map.setLayoutProperty('esri-imagery', 'visibility', showSatellite ? 'visible' : 'none')
-    setBasemapFillVisibility(map, !showSatellite)
-  }, [showSatellite, isMapLoaded])
+    map.setLayoutProperty('esri-imagery', 'visibility', basemap === 'satellite' ? 'visible' : 'none')
+    map.setLayoutProperty('topo', 'visibility', basemap === 'topography' ? 'visible' : 'none')
+    setBasemapFillVisibility(map, basemap === 'dark')
+  }, [basemap, isMapLoaded])
 
   // Tiles overlay toggle
   useEffect(() => {

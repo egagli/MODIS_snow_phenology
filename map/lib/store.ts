@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { LoadingState } from '@carbonplan/zarr-layer'
 
 export type Variable = 'SAD_DOWY' | 'SDD_DOWY' | 'max_consec_snow_days'
+export type Basemap = 'dark' | 'satellite' | 'topography'
 
 export const VARIABLE_CONFIGS: Record<
   Variable,
@@ -64,7 +65,7 @@ interface AppState {
   globeProjection: boolean
   loadingState: LoadingState
   sidebarWidth: number | null
-  showSatellite: boolean
+  basemap: Basemap
   showTiles: boolean
   clickInfo: ClickInfo | null
   tileClickInfo: TileClickInfo | null
@@ -78,7 +79,7 @@ interface AppState {
   setGlobeProjection: (g: boolean) => void
   setLoadingState: (s: LoadingState) => void
   setSidebarWidth: (w: number | null) => void
-  setShowSatellite: (v: boolean) => void
+  setBasemap: (b: Basemap) => void
   setShowTiles: (v: boolean) => void
   setClickInfo: (info: ClickInfo | null) => void
   setTileClickInfo: (info: TileClickInfo | null) => void
@@ -95,7 +96,7 @@ export const useStore = create<AppState>((set) => ({
   globeProjection: true,
   loadingState: { loading: false, metadata: false, chunks: false },
   sidebarWidth: null,
-  showSatellite: false,
+  basemap: 'dark',
   showTiles: false,
   clickInfo: null,
   tileClickInfo: null,
@@ -114,7 +115,7 @@ export const useStore = create<AppState>((set) => ({
   setGlobeProjection: (globeProjection) => set({ globeProjection }),
   setLoadingState: (loadingState) => set({ loadingState }),
   setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
-  setShowSatellite: (showSatellite) => set({ showSatellite }),
+  setBasemap: (basemap) => set({ basemap }),
   setShowTiles: (showTiles) => set({ showTiles }),
   setClickInfo: (clickInfo) => set({ clickInfo }),
   setTileClickInfo: (tileClickInfo) => set({ tileClickInfo }),
