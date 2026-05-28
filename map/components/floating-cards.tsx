@@ -61,8 +61,13 @@ function formatPropValue(v: unknown): string {
   return String(v)
 }
 
+const PROP_LABEL_OVERRIDES: Record<string, string> = {
+  total_num_MOD10A2_scenes: 'MOD10A2 scenes in record',
+}
+
 function propLabel(key: string): string {
-  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  if (PROP_LABEL_OVERRIDES[key]) return PROP_LABEL_OVERRIDES[key]
+  return key.replace(/_/g, ' ')
 }
 
 // DOWY → calendar date, hemisphere-aware.
@@ -240,9 +245,9 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
   const setBasemap = useStore((s) => s.setBasemap)
 
   const BASEMAP_OPTS: { label: string; value: Basemap }[] = [
-    { label: 'Dark',        value: 'dark'        },
-    { label: 'Satellite',   value: 'satellite'   },
-    { label: 'Topography',  value: 'topography'  },
+    { label: 'dark',        value: 'dark'        },
+    { label: 'satellite',   value: 'satellite'   },
+    { label: 'topography',  value: 'topography'  },
   ]
 
   return (
@@ -257,7 +262,7 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
       </div>
       <div style={sectionLabelStyle}>projection</div>
       <div style={{ display: 'flex', gap: 6 }}>
-        {[{ label: 'Globe', value: true }, { label: 'Mercator', value: false }].map((opt) => (
+        {[{ label: 'globe', value: true }, { label: 'mercator', value: false }].map((opt) => (
           <button key={String(opt.value)} onClick={() => setGlobeProjection(opt.value)} style={chip(globeProjection === opt.value)}>
             {opt.label}
           </button>
