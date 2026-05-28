@@ -505,7 +505,7 @@ export const FloatingCards = () => {
   const CARD_RIGHT = 16
   const TOP_RIGHT_TOP = 16
   const TOP_CARD_HEIGHT = 138
-  const COMBINED_CARD_TOP = TOP_RIGHT_TOP + TOP_CARD_HEIGHT + 8
+  const COMBINED_CARD_TOP = TOP_RIGHT_TOP + TOP_CARD_HEIGHT + 4
 
   return (
     <>
