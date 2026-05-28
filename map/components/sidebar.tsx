@@ -16,7 +16,7 @@ const COLORMAPS = [
   'pinkgreen', 'redteal', 'orangeblue', 'yellowpurple',
 ]
 
-export const SIDEBAR_WIDTH = 340
+export const SIDEBAR_WIDTH = 380
 const BG = 'rgba(22,25,30,0.96)'
 const BORDER = '#2e3138'
 const TEXT = '#d0d0d0'
@@ -25,8 +25,7 @@ const ACCENT = '#1dbd8f'
 
 const sectionLabelStyle: CSSProperties = {
   fontSize: 10,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
   color: DIM,
   fontWeight: 600,
   marginBottom: 8,
@@ -99,7 +98,7 @@ const SidebarContent = () => {
           MODIS Snow Phenology
         </Box>
         <div style={{ fontSize: 11, color: DIM, lineHeight: 1.6, marginBottom: 4 }}>
-          Global snow appearance, disappearance, and duration from MODIS MOD10A2 (2015–2024).
+          A global, 500 meter resolution snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent covering water years 2015 to 2024. Each pixel stores three annual metrics: snow appearance date [DOWY], snow disappearance date [DOWY], and longest continuous snow period [days]. Cloud gaps are filled using a bidirectional temporal interpolation method similar to Wrzesien et al. (2019), and polar-night periods are corrected before cloud-filling to prevent false no-snow classifications at high latitudes. For more information, please check out the github repo linked below.
         </div>
         <a
           href='https://github.com/egagli/MODIS_snow_phenology'
@@ -115,7 +114,7 @@ const SidebarContent = () => {
 
       {/* Variable */}
       <div>
-        <div style={sectionLabelStyle}>Variable</div>
+        <div style={sectionLabelStyle}>variable</div>
         <Filter
           values={Object.fromEntries(
             (Object.keys(VARIABLE_LABELS) as Variable[]).map((v) => [
@@ -131,14 +130,14 @@ const SidebarContent = () => {
           }}
         />
         <div style={{ fontSize: 11, color: DIM, marginTop: 4 }}>
-          {VARIABLE_CONFIGS[variable].label} ({VARIABLE_CONFIGS[variable].units})
+          {VARIABLE_CONFIGS[variable].label} [{VARIABLE_CONFIGS[variable].units}]
         </div>
       </div>
 
       {/* Water Year */}
       <div>
         <div style={{ ...sectionLabelStyle, marginBottom: 4 }}>
-          Water Year —{' '}
+          water year —{' '}
           <span style={{ color: TEXT, fontWeight: 700 }}>{WATER_YEARS[waterYearIndex]}</span>
         </div>
         <Slider
@@ -169,7 +168,7 @@ const SidebarContent = () => {
 
       {/* Colormap */}
       <div>
-        <div style={sectionLabelStyle}>Colormap</div>
+        <div style={sectionLabelStyle}>colormap</div>
         <select
           value={colormap}
           onChange={(e) => setColormap(e.target.value)}
@@ -195,7 +194,7 @@ const SidebarContent = () => {
 
       {/* Range */}
       <div>
-        <div style={sectionLabelStyle}>Range</div>
+        <div style={sectionLabelStyle}>range</div>
         <Flex sx={{ gap: 2, alignItems: 'center' }}>
           <Input
             size='xs'
@@ -223,7 +222,7 @@ const SidebarContent = () => {
 
       {/* Opacity */}
       <div>
-        <div style={sectionLabelStyle}>Opacity</div>
+        <div style={sectionLabelStyle}>opacity</div>
         <Slider
           min={0}
           max={1}

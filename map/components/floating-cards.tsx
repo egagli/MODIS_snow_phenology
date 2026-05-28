@@ -13,10 +13,9 @@ const ACCENT = '#1dbd8f'
 const CARD_WIDTH = 340
 
 const TILE_STATUS_META: Record<string, { label: string; color: string }> = {
-  processed:   { label: 'Processed',   color: '#22c55e' },
-  unprocessed: { label: 'Unprocessed', color: '#ef4444' },
-  nodata:      { label: 'No Data',     color: '#f97316' },
-  skip:        { label: 'Skip',        color: '#3b82f6' },
+  processed:   { label: 'processed',   color: '#22c55e' },
+  unprocessed: { label: 'unprocessed', color: '#ef4444' },
+  skip:        { label: 'skip',        color: '#3b82f6' },
 }
 
 const cardStyle: CSSProperties = {
@@ -34,8 +33,7 @@ const cardStyle: CSSProperties = {
 
 const sectionLabelStyle: CSSProperties = {
   fontSize: 10,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
   color: DIM,
   marginBottom: 6,
   fontWeight: 600,
@@ -249,7 +247,7 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
 
   return (
     <div style={{ ...cardStyle, top, right }}>
-      <div style={sectionLabelStyle}>Basemap</div>
+      <div style={sectionLabelStyle}>basemap</div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         {BASEMAP_OPTS.map((opt) => (
           <button key={opt.value} onClick={() => setBasemap(opt.value)} style={chip(basemap === opt.value)}>
@@ -257,7 +255,7 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
           </button>
         ))}
       </div>
-      <div style={sectionLabelStyle}>Projection</div>
+      <div style={sectionLabelStyle}>projection</div>
       <div style={{ display: 'flex', gap: 6 }}>
         {[{ label: 'Globe', value: true }, { label: 'Mercator', value: false }].map((opt) => (
           <button key={String(opt.value)} onClick={() => setGlobeProjection(opt.value)} style={chip(globeProjection === opt.value)}>
@@ -296,9 +294,9 @@ function extractWyStats(props: Record<string, unknown>): {
 }
 
 const QUERY_ROWS: { key: Variable; label: string }[] = [
-  { key: 'SAD_DOWY',             label: 'Appearance' },
-  { key: 'SDD_DOWY',             label: 'Disappearance' },
-  { key: 'max_consec_snow_days', label: 'Duration' },
+  { key: 'SAD_DOWY',             label: 'appearance' },
+  { key: 'SDD_DOWY',             label: 'disappearance' },
+  { key: 'max_consec_snow_days', label: 'duration' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -345,10 +343,10 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
       {/* Mode tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexShrink: 0 }}>
         <button onClick={() => handleSetMode('point')} style={chip(mode === 'point')}>
-          Point Query
+          point query
         </button>
         <button onClick={() => handleSetMode('grid')} style={chip(mode === 'grid')}>
-          Processing Grid
+          processing grid
         </button>
       </div>
 
@@ -360,20 +358,20 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
           clickInfo ? (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                <span style={{ color: DIM, fontSize: 14 }}>Latitude</span>
+                <span style={{ color: DIM, fontSize: 14 }}>latitude</span>
                 <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{clickInfo.lat.toFixed(4)}°</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                <span style={{ color: DIM, fontSize: 14 }}>Longitude</span>
+                <span style={{ color: DIM, fontSize: 14 }}>longitude</span>
                 <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{clickInfo.lng.toFixed(4)}°</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                <span style={{ color: DIM, fontSize: 14 }}>Water Year</span>
+                <span style={{ color: DIM, fontSize: 14 }}>water year</span>
                 <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{waterYear}</span>
               </div>
               <div style={{ borderTop: `1px solid ${BORDER}`, margin: '10px 0' }} />
               {clickInfo.status === 'querying' ? (
-                <div style={{ color: DIM, fontSize: 14 }}>Querying…</div>
+                <div style={{ color: DIM, fontSize: 14 }}>querying…</div>
               ) : (
                 QUERY_ROWS.map(({ key, label }) => (
                   <div key={key} style={{
@@ -401,21 +399,16 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
           /* ── Processing Grid ─────────────────────────────────── */
           <>
             {/* Status legend with counts */}
-            <div style={sectionLabelStyle}>Status</div>
+            <div style={sectionLabelStyle}>status</div>
             {Object.entries(TILE_STATUS_META).map(([key, { label, color }]) => (
-              <div key={key} style={{
-                display: 'flex', alignItems: 'center',
-                justifyContent: 'space-between', marginBottom: 5,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
-                  <span>{label}</span>
-                </div>
-                {tileCounts[key] !== undefined && (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
+                <span>
+                  {label}
                   <span style={{ color: DIM, fontFamily: 'monospace', fontSize: 11 }}>
-                    {tileCounts[key]}
+                    {' '}({tileCounts[key] ?? 0})
                   </span>
-                )}
+                </span>
               </div>
             ))}
 
@@ -464,13 +457,13 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
                   if (rows.length === 0) return null
                   return (
                     <div style={{ marginTop: 8 }}>
-                      <div style={sectionLabelStyle}>Per-Year Stats</div>
+                      <div style={sectionLabelStyle}>per-year stats</div>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'monospace' }}>
                         <thead>
                           <tr style={{ color: DIM }}>
                             <th style={{ textAlign: 'left',  paddingBottom: 3, fontWeight: 400 }}>WY</th>
-                            <th style={{ textAlign: 'right', paddingBottom: 3, fontWeight: 400 }}>Input scenes</th>
-                            <th style={{ textAlign: 'right', paddingBottom: 3, fontWeight: 400 }}>Coverage %</th>
+                            <th style={{ textAlign: 'right', paddingBottom: 3, fontWeight: 400 }}>input scenes</th>
+                            <th style={{ textAlign: 'right', paddingBottom: 3, fontWeight: 400 }}>coverage %</th>
                           </tr>
                         </thead>
                         <tbody>
