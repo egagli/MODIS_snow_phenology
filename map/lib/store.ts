@@ -68,6 +68,7 @@ interface AppState {
   showTiles: boolean
   clickInfo: ClickInfo | null
   tileClickInfo: TileClickInfo | null
+  activeWarning: { name: string; message: string } | null
   setVariable: (v: Variable) => void
   setWaterYearIndex: (i: number) => void
   setOpacity: (o: number) => void
@@ -80,6 +81,7 @@ interface AppState {
   setShowTiles: (v: boolean) => void
   setClickInfo: (info: ClickInfo | null) => void
   setTileClickInfo: (info: TileClickInfo | null) => void
+  setActiveWarning: (w: { name: string; message: string } | null) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -95,6 +97,7 @@ export const useStore = create<AppState>((set) => ({
   showTiles: false,
   clickInfo: null,
   tileClickInfo: null,
+  activeWarning: null,
   setVariable: (variable) =>
     set({
       variable,
@@ -112,4 +115,5 @@ export const useStore = create<AppState>((set) => ({
   setShowTiles: (showTiles) => set({ showTiles }),
   setClickInfo: (clickInfo) => set({ clickInfo }),
   setTileClickInfo: (tileClickInfo) => set({ tileClickInfo }),
+  setActiveWarning: (activeWarning) => set({ activeWarning }),
 }))

@@ -17,6 +17,37 @@ import {
   type TileClickInfo,
 } from '../lib/store'
 
+// Regions known to produce MODIS snow detection artifacts.
+// Checked against the viewport on every moveend/zoomend.
+const WARNING_ZONES: {
+  name: string
+  message: string
+  bbox: [number, number, number, number] // [west, south, east, north]
+  minZoom: number
+}[] = [
+  {
+    name: 'Salt Flats — Atacama / Altiplano',
+    bbox: [-73, -28, -60, -14],
+    minZoom: 4,
+    message:
+      'Salt flats in this region (e.g., Salar de Atacama, Salar de Uyuni) are known to cause false-positive snow detections in the MODIS snow product. Data reliability may be reduced.',
+  },
+  {
+    name: 'Tibetan Plateau — Turbid Lakes',
+    bbox: [78, 27, 105, 38],
+    minZoom: 4,
+    message:
+      'Turbid water bodies on the Tibetan Plateau can trigger false-positive snow presence in MODIS. Interpret snow phenology results in this region with caution.',
+  },
+  {
+    name: 'Eastern Tropical Andes — Cloud Cover',
+    bbox: [-82, -22, -68, 8],
+    minZoom: 4,
+    message:
+      'Near-permanent cloud cover on the eastern slopes of the tropical Andes leads to frequent cloud–snow misclassification in MODIS. Data in this region may be unreliable.',
+  },
+]
+
 const MODIS_SINUSOIDAL_PROJ4 =
   '+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +a=6371007.181 +b=6371007.181 +units=m +no_defs'
 
@@ -195,6 +226,7 @@ export const Map = () => {
   const setLoadingState = useStore((s) => s.setLoadingState)
   const setClickInfo = useStore((s) => s.setClickInfo)
   const setTileClickInfo = useStore((s) => s.setTileClickInfo)
+  const setActiveWarning = useStore((s) => s.setActiveWarning)
 
   const colormapArray = useThemedColormap(colormap, { format: 'hex' })
 
@@ -320,6 +352,32 @@ export const Map = () => {
       setIsMapLoaded(false)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Artifact warning zones — fire on every moveend/zoomend
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !isMapLoaded) return
+
+    const check = () => {
+      const zoom = map.getZoom()
+      const b = map.getBounds()
+      const w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth()
+      for (const zone of WARNING_ZONES) {
+        if (zoom < zone.minZoom) continue
+        const [zw, zs, ze, zn] = zone.bbox
+        if (w < ze && e > zw && s < zn && n > zs) {
+          setActiveWarning({ name: zone.name, message: zone.message })
+          return
+        }
+      }
+      setActiveWarning(null)
+    }
+
+    map.on('moveend', check)
+    map.on('zoomend', check)
+    check()
+    return () => { map.off('moveend', check); map.off('zoomend', check) }
+  }, [isMapLoaded, setActiveWarning])
 
   // Projection toggle
   useEffect(() => {

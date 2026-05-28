@@ -91,6 +91,63 @@ function formatValue(
 }
 
 // ---------------------------------------------------------------------------
+// WarningToast — artifact zone notification
+// ---------------------------------------------------------------------------
+
+const WarningToast = () => {
+  const activeWarning = useStore((s) => s.activeWarning)
+  const sidebarWidth  = useStore((s) => s.sidebarWidth)
+  const [dismissed, setDismissed] = useState(false)
+
+  useEffect(() => { setDismissed(false) }, [activeWarning?.name])
+
+  if (!activeWarning || dismissed) return null
+
+  const left = (sidebarWidth ?? 0) + 16
+  const right = CARD_WIDTH + 32 // leave room for the floating cards
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: 12,
+      left,
+      right,
+      margin: '0 auto',
+      maxWidth: 520,
+      background: 'rgba(22,25,30,0.96)',
+      border: '1px solid rgba(251,191,36,0.55)',
+      backdropFilter: 'blur(6px)',
+      borderRadius: 8,
+      padding: '10px 14px',
+      color: TEXT,
+      fontSize: 12,
+      zIndex: 20,
+      display: 'flex',
+      gap: 10,
+      alignItems: 'flex-start',
+    }}>
+      <span style={{ fontSize: 16, lineHeight: 1.4, flexShrink: 0 }}>⚠</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700, color: '#fbbf24', marginBottom: 3, fontSize: 12 }}>
+          {activeWarning.name}
+        </div>
+        <div style={{ color: DIM, lineHeight: 1.5 }}>{activeWarning.message}</div>
+      </div>
+      <button
+        onClick={() => setDismissed(true)}
+        style={{
+          background: 'none', border: 'none', color: DIM,
+          cursor: 'pointer', fontSize: 16, lineHeight: 1,
+          padding: 0, flexShrink: 0,
+        }}
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // TopRightCard — Basemap + Projection
 // ---------------------------------------------------------------------------
 
@@ -362,6 +419,7 @@ export const FloatingCards = () => {
 
   return (
     <>
+      <WarningToast />
       <TopRightCard right={CARD_RIGHT} top={TOP_RIGHT_TOP} />
       <CombinedInspectorCard right={CARD_RIGHT} top={COMBINED_CARD_TOP} />
     </>
