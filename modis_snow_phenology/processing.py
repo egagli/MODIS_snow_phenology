@@ -55,23 +55,31 @@ def get_modis_MOD10A2_max_snow_extent(
       4. pystac-client, planetary-computer, odc-stac remain in pixi.toml — no lock regen needed
     """
     import logging as _logging
+    import random as _random
     import time as _time
     _log_auth = _logging.getLogger(__name__)
 
-    # Login with username/password. Retry to handle transient ENETUNREACH on
-    # some GitHub Actions runners (IPv6 routing failures to urs.earthdata.nasa.gov).
-    for _attempt in range(5):
+    # Login with username/password. A fresh runner's FIRST contact with
+    # urs.earthdata.nasa.gov is the fleet's dominant failure mode (ENETUNREACH
+    # from every retry: runner egress not ready at boot, and/or NASA's edge
+    # rejecting new source IPs under fleet load). Measured 2026-07-29:
+    # 54/314 jobs died here, all inside their first ~55s retry window, and no
+    # job that got past its first login ever failed a later one. So: be
+    # patient (~7 min worst case) and jitter the backoff so failing runners
+    # don't retry in lockstep.
+    for _attempt in range(9):
         try:
             earthaccess.login(strategy="environment")
             break
         except Exception as _exc:
-            if _attempt == 4:
+            if _attempt == 8:
                 raise
+            _delay = min(2 ** _attempt, 90) * _random.uniform(1.0, 1.5)
             _log_auth.warning(
                 f"earthaccess login attempt {_attempt + 1} failed ({_exc}), "
-                f"retrying in {2 ** _attempt}s..."
+                f"retrying in {_delay:.0f}s..."
             )
-            _time.sleep(2 ** _attempt)
+            _time.sleep(_delay)
 
     _auth_session = earthaccess.get_requests_https_session()
 
