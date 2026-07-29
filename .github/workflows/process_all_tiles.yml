@@ -1,9 +1,11 @@
 name: Process All Tiles
 
-# Re-runnable: queries Icechunk history to skip already-processed tiles.
+# Re-runnable: queries Icechunk history to skip already-committed
+# (tile, water-year) pairs; ineligible water years (hemisphere season not
+# yet elapsed + buffer) are excluded and dispatched automatically later.
 #
 # Uses a batches-of-batches pattern to stay under the 256-job matrix limit:
-#   1. generate-tile-matrix: queries unprocessed tiles, outputs batch index list
+#   1. generate-tile-matrix: queries missing (tile, water-year) work, outputs batch index list
 #   2. process-batches: one job per batch, each calls process_batch.yml
 #      which internally fans out up to 256 tile jobs
 
@@ -17,6 +19,16 @@ on:
         type: choice
         options:
           - config/config_v1.txt
+      which_tiles:
+        description: >-
+          'missing': (tile, water-year) pairs that are eligible but have no
+          commit yet; 'all': every to_process tile x all eligible years
+        required: false
+        default: 'missing'
+        type: choice
+        options:
+          - missing
+          - all
 
 env:
   AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
@@ -49,7 +61,7 @@ jobs:
         run: |
           OUTPUT=$(pixi run -e ci python processing/scripts/get_tiles_for_batch.py \
             --config-file ${{ inputs.config_file }} \
-            --which-tiles unprocessed \
+            --which-tiles ${{ inputs.which_tiles }} \
             --list-batches)
           COUNT=$(echo "$OUTPUT" | python -c "import sys,json; print(len(json.load(sys.stdin)['batch_index']))")
           echo "matrix=$OUTPUT" >> $GITHUB_OUTPUT
@@ -65,5 +77,5 @@ jobs:
     with:
       batch_index: ${{ matrix.batch_index }}
       config_file: ${{ inputs.config_file }}
-      which_tiles: unprocessed
+      which_tiles: ${{ inputs.which_tiles }}
     secrets: inherit

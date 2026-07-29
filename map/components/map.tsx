@@ -127,6 +127,7 @@ function latlonToL0RowCol(lat: number, lon: number): [number, number] | null {
 
 const TILE_COLORS = {
   processed:   '#22c55e',
+  partial:     '#eab308',
   unprocessed: '#ef4444',
   nodata:      '#f97316',
   skip:        '#3b82f6',
@@ -326,6 +327,7 @@ export const Map = () => {
       const fillColor: maplibregl.ExpressionSpecification = [
         'case',
         ['==', ['get', 'processing_status'], 'processed'],   TILE_COLORS.processed,
+        ['==', ['get', 'processing_status'], 'partial'],      TILE_COLORS.partial,
         ['==', ['get', 'processing_status'], 'unprocessed'],  TILE_COLORS.unprocessed,
         ['==', ['get', 'processing_status'], 'nodata'],       TILE_COLORS.nodata,
         ['==', ['get', 'processing_status'], 'skip'],         TILE_COLORS.skip,

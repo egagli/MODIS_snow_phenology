@@ -1,16 +1,33 @@
 """
 Process a single MODIS tile and write results to the Icechunk store.
 
+One commit per (tile, water year), each carrying structured metadata
+(see modis_snow_phenology.status) — the commit history is the single
+source of processing-status truth, mirroring global_snowmelt_runoff_onset.
+
 Usage:
     python process_single_tile.py --h 10 --v 4
+    python process_single_tile.py --h 10 --v 4 --water-years 2025
     python process_single_tile.py --h 10 --v 4 \
-        --config-file config/config_v1.txt
+        --config-file config/config_v1.txt --water-years eligible
 
-On success: commits data to Icechunk with message:
-    "Tile(h=10, v=4) processed. Stats: [...] Special note: None"
-On no-data: commits an empty snapshot with Special note set to
-    SPECIAL_NOTE_NODATA
-On failure: exits nonzero; no Icechunk commit (store remains clean)
+--water-years:
+    'eligible' (default, alias 'all') — all config years whose season has
+        fully elapsed for this tile's hemisphere (+ TRAILING_BUFFER_DAYS);
+        the normal mode for both fleet dispatch and manual runs.
+    comma list (e.g. '2025' or '2024,2025') — explicit years; ineligible
+        ones are skipped with a warning (never processed, never committed).
+    NO mode bypasses the eligibility gate — committing a half-elapsed season
+        would bake partial data into the store as if it were verified truth.
+
+Per water year:
+    data  -> writes the year's slab, commits with status='data' + stats
+    empty -> commits an empty snapshot with status='empty' and
+             empty_reason='no_granules' | 'insufficient_obs'
+    ineligible -> NO commit at all (stays 'missing' so it is dispatched
+             automatically once its season closes)
+On failure: exits nonzero; no commit for unfinished years (store clean,
+    finished years of this run keep their commits).
 """
 
 import argparse
@@ -32,12 +49,17 @@ import xarray as xr
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from modis_snow_phenology import processing  # noqa: E402
-from modis_snow_phenology.config import (  # noqa: E402
-    Config,
-    SPECIAL_NOTE_NONE,
-    SPECIAL_NOTE_NODATA,
-)
+from modis_snow_phenology.config import Config  # noqa: E402
 from modis_snow_phenology.processing import _rss_mb  # noqa: E402
+from modis_snow_phenology.status import (  # noqa: E402
+    EMPTY_INSUFFICIENT_OBS,
+    EMPTY_NO_GRANULES,
+    MIN_OBS_PER_WY,
+    STATUS_DATA,
+    STATUS_EMPTY,
+    build_commit_message,
+    build_commit_metadata,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,6 +85,15 @@ def parse_args():
     p.add_argument(
         "--config-file", default="config/config_v1.txt",
         help="Path to config file",
+    )
+    p.add_argument(
+        "--water-years", default="eligible",
+        help=(
+            "'eligible' (default): all config years passing the hemisphere "
+            "eligibility gate; 'all': every config year (deliberate re-runs); "
+            "or a comma list like '2025' / '2024,2025' (ineligible years are "
+            "skipped with a warning)"
+        ),
     )
     return p.parse_args()
 
@@ -95,11 +126,15 @@ def assign_water_year_coords(
 
 def process_water_year(
     h: int, v: int, wy: int, config: Config, hemisphere: str
-) -> tuple[xr.Dataset, int] | None:
+) -> tuple[xr.Dataset | None, int]:
     """
     Fetch, cloud-fill, and compute snow metrics for a single water year.
     Fetches 1 prior and 1 following water year so bfill/ffill have context.
-    Returns (metrics_dataset, input_obs) or None if too few observations.
+
+    Returns (metrics_dataset, input_obs), or (None, input_obs) when the
+    target WY has fewer than MIN_OBS_PER_WY observations. Raises ValueError
+    when the archive has no granules at all for the fetch window (the caller
+    records this as an empty year with reason 'no_granules').
     """
     if hemisphere == "northern":
         # NH WY spans Oct(wy-1)–Sep(wy); fetch one extra year each side
@@ -125,8 +160,11 @@ def process_water_year(
             chunks={"time": -1, "x": 2400, "y": 2400},
         )
     except ValueError:
-        # Extended window (wy+1) likely exceeds archive coverage (MODIS Terra
-        # decommissioned Nov 2024); fall back to end of target WY only.
+        # The +1-WY trailing buffer can extend past the archive's current end
+        # when processing recent years (MOD10A2 is still produced; verified
+        # via CMR 2026-07 — only the Planetary Computer mirror stopped).
+        # Fall back to end of target WY only; if THAT also finds nothing,
+        # the ValueError propagates and the caller commits 'no_granules'.
         log.warning(
             "WY%d: extended fetch to %s returned no data; "
             "retrying with fallback end %s",
@@ -226,11 +264,11 @@ def process_water_year(
     wy_da = binary_aligned.isel(
         time=(binary_aligned.water_year.values == wy)
     )
-    if len(wy_da.time) < 5:
+    if len(wy_da.time) < MIN_OBS_PER_WY:
         log.warning(
             "WY%d: only %d observations, skipping", wy, len(wy_da.time)
         )
-        return None
+        return None, len(wy_da.time)
 
     input_obs = len(wy_da.time)
     log.info(
@@ -241,30 +279,36 @@ def process_water_year(
     return metrics.expand_dims(water_year=[wy]), input_obs
 
 
-def _write_step_summary(tile_id, wy_stats, snapshot_id, *, nodata=False):
+def _write_step_summary(tile_id, wy_results, skipped_ineligible=()):
+    """GitHub Actions job summary: one row per committed water year."""
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
     lines = [f"## Tile {tile_id}", ""]
-    if nodata:
+    if wy_results:
         lines += [
-            "⚠️ **No input data found for any water year"
-            " — empty commit made.**",
-            "",
+            "| Water Year | Status | Input obs | Valid pixels | Coverage | Snapshot |",
+            "| ---------- | ------ | --------- | ------------ | -------- | -------- |",
         ]
-    else:
-        lines += [
-            "| Water Year | Input obs | Valid pixels | Coverage |",
-            "| ---------- | --------- | ------------ | -------- |",
-        ]
-        for wy, stats in sorted(wy_stats.items()):
+        for wy, r in sorted(wy_results.items()):
+            stats = r["stats"] or {}
+            status = r["status"] + (f" ({r['reason']})" if r["reason"] else "")
+            valid = stats.get("valid_pixels")
+            cov = stats.get("coverage")
+            valid_str = f"{valid:,}" if valid is not None else "—"
+            cov_str = f"{cov:.1f}%" if cov is not None else "—"
             lines.append(
-                f"| WY{wy} | {stats['input_obs']} "
-                f"| {stats['valid_pixels']:,} "
-                f"| {stats['coverage']:.1f}% |"
+                f"| WY{wy} | {status} | {stats.get('input_obs', '—')} "
+                f"| {valid_str} | {cov_str} | `{r['snapshot']}` |"
             )
         lines.append("")
-    lines.append(f"**Snapshot:** `{snapshot_id}`")
+    else:
+        lines += ["**No water years committed.**", ""]
+    if skipped_ineligible:
+        lines.append(
+            f"⏳ Ineligible (season not elapsed + buffer), left 'missing': "
+            f"{', '.join(f'WY{wy}' for wy in skipped_ineligible)}"
+        )
     with open(summary_path, "w") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -289,6 +333,43 @@ def main():
     log.info("Config:\n%s", config)
     log.info("Processing tile %s (%s hemisphere)", tile_id, hemisphere)
     start = datetime.now(timezone.utc)
+
+    # --- select target water years (hemisphere eligibility gate) ---
+    # No mode bypasses the gate: committing a half-elapsed season would bake
+    # partial data into the store as if it were verified truth.
+    eligible = set(config.eligible_years(hemisphere))
+    if args.water_years in ("eligible", "all"):
+        requested = list(config.years)
+    else:
+        requested = sorted({int(t) for t in args.water_years.split(",")})
+        outside = [wy for wy in requested if wy not in config.years]
+        if outside:
+            log.error(
+                "Requested water years %s are outside the config range "
+                "%d-%d — the store has no slot for them (extend the store "
+                "and bump WY_END first)",
+                outside, config.WY_START, config.WY_END,
+            )
+            sys.exit(1)
+
+    target_wys = [wy for wy in requested if wy in eligible]
+    skipped_ineligible = [wy for wy in requested if wy not in eligible]
+    if skipped_ineligible:
+        log.warning(
+            "Skipping ineligible water years %s (%s hemisphere season not "
+            "elapsed + %dd buffer); they stay 'missing' and will be "
+            "dispatched once eligible",
+            skipped_ineligible, hemisphere, config.TRAILING_BUFFER_DAYS,
+        )
+    if not target_wys:
+        log.warning(
+            "No eligible water years to process for tile %s — exiting "
+            "WITHOUT commit (nothing is marked attempted)", tile_id,
+        )
+        _write_step_summary(tile_id, {}, skipped_ineligible)
+        return
+
+    log.info("Target water years: %s", target_wys)
 
     storage = icechunk.azure_storage(
         account=config.AZURE_STORAGE_ACCOUNT,
@@ -315,140 +396,114 @@ def main():
     )
     store_y = ds_store.y[v * 2400: (v + 1) * 2400].values
     store_x = ds_store.x[h * 2400: (h + 1) * 2400].values
+    store_wys = set(int(wy) for wy in ds_store.water_year.values)
+    missing_slots = [wy for wy in target_wys if wy not in store_wys]
+    if missing_slots:
+        log.error(
+            "Store water_year coordinate lacks %s — run "
+            "processing/scripts/extend_store_water_years.py first",
+            missing_slots,
+        )
+        sys.exit(1)
 
-    target_wys = np.arange(config.WY_START, config.WY_END + 1)
-    # list of (wy, ds_write, input_obs) — kept in memory for commit retries
-    pending_writes = []
-    written_wys = []
-
+    # --- one commit per water year (crash-safe: finished years keep their
+    # commits; unfinished years never commit and stay 'missing') ---
+    wy_results = {}
     for wy in target_wys:
-        result = process_water_year(h, v, wy, config, hemisphere)
-        if result is None:
-            continue
-        metrics, input_obs = result
+        wy_start = time.monotonic()
+        try:
+            metrics, input_obs = process_water_year(h, v, wy, config, hemisphere)
+            empty_reason = EMPTY_INSUFFICIENT_OBS if metrics is None else None
+        except ValueError as exc:
+            log.warning("WY%d: no MOD10A2 granules for fetch window (%s)", wy, exc)
+            metrics, input_obs, empty_reason = None, 0, EMPTY_NO_GRANULES
 
-        # Snap tile coordinates to store's exact values
-        y_ok = np.allclose(store_y, metrics.y.values, atol=1.0)
-        x_ok = np.allclose(store_x, metrics.x.values, atol=1.0)
-        if not (y_ok and x_ok):
-            y_diff = np.max(np.abs(store_y - metrics.y.values))
-            x_diff = np.max(np.abs(store_x - metrics.x.values))
-            raise ValueError(
-                f"WY{wy}: tile coordinates do not match store grid "
-                f"(max y diff: {y_diff:.2f} m, max x diff: {x_diff:.2f} m)"
-            )
-        metrics = metrics.assign_coords(y=store_y, x=store_x)
+        if metrics is None:
+            status = STATUS_EMPTY
+            stats = {"input_obs": int(input_obs)}
+            ds_write = None
+        else:
+            # Snap tile coordinates to store's exact values
+            y_ok = np.allclose(store_y, metrics.y.values, atol=1.0)
+            x_ok = np.allclose(store_x, metrics.x.values, atol=1.0)
+            if not (y_ok and x_ok):
+                y_diff = np.max(np.abs(store_y - metrics.y.values))
+                x_diff = np.max(np.abs(store_x - metrics.x.values))
+                raise ValueError(
+                    f"WY{wy}: tile coordinates do not match store grid "
+                    f"(max y diff: {y_diff:.2f} m, max x diff: {x_diff:.2f} m)"
+                )
+            metrics = metrics.assign_coords(y=store_y, x=store_x)
 
-        ds_write = metrics.drop_vars("spatial_ref", errors="ignore")
-        for var in ds_write.data_vars:
-            ds_write[var].attrs.pop("_FillValue", None)
-        ds_write = ds_write.chunk({"water_year": 1, "y": 2400, "x": 2400})
+            ds_write = metrics.drop_vars("spatial_ref", errors="ignore")
+            for var in ds_write.data_vars:
+                ds_write[var].attrs.pop("_FillValue", None)
+            ds_write = ds_write.chunk({"water_year": 1, "y": 2400, "x": 2400})
 
-        pending_writes.append((wy, ds_write, input_obs))
-        written_wys.append(wy)
+            # max_consec_snow_days is int16; fill = -32768 for ocean/no-data,
+            # 0 for land pixels that never held snow. np.isnan() is always
+            # False for ints, so "valid" = strictly positive.
+            mcsd = ds_write["max_consec_snow_days"]
+            valid = int(np.sum(mcsd.values > 0))
+            coverage = 100.0 * valid / int(mcsd.size) if mcsd.size else 0.0
+            status = STATUS_DATA
+            stats = {
+                "input_obs": int(input_obs),
+                "valid_pixels": valid,
+                "coverage": round(coverage, 2),
+            }
 
-    if not written_wys:
-        # No valid data for any water year — commit an empty snapshot so this
-        # tile is marked as attempted and skipped on future re-runs.
-        log.warning(
-            "No water years with data for tile %s — committing nodata marker",
-            tile_id,
+        duration_s = time.monotonic() - wy_start
+        metadata = build_commit_metadata(
+            h, v, wy, hemisphere, status, config.VERSION,
+            empty_reason=empty_reason, stats=stats, duration_s=duration_s,
         )
-        commit_message = (
-            f"Tile(h={h}, v={v}) processed. "
-            f"Stats: [] "
-            f"Special note: {SPECIAL_NOTE_NODATA}"
+        message = build_commit_message(
+            h, v, wy, status,
+            empty_reason=empty_reason, valid_px=stats.get("valid_pixels"),
         )
+
+        # ConflictDetector handles concurrent commits from parallel matrix
+        # jobs: each job writes a unique tile region, so there are never real
+        # data conflicts and Icechunk rebases automatically.
         while True:
             try:
                 repo = icechunk.Repository.open(storage, config=repo_config)
                 session = repo.writable_session("main")
+                if ds_write is not None:
+                    log.info("WY%d: writing...", wy)
+                    ds_write.to_zarr(
+                        session.store, region="auto", mode="r+", zarr_format=3
+                    )
                 snapshot_id = session.commit(
-                    commit_message,
+                    message,
+                    metadata=metadata,
                     rebase_with=icechunk.ConflictDetector(),
-                    allow_empty=True,
+                    allow_empty=ds_write is None,
                 )
-                log.info("Committed nodata marker -> %s", snapshot_id)
                 break
             except Exception as exc:
                 delay = random.uniform(3, 10)
                 log.warning(
-                    "Conflict on nodata commit, retrying in %.1fs: %s",
-                    delay, exc,
+                    "WY%d commit failed (%s: %s); retrying in %.1fs",
+                    wy, type(exc).__name__, exc, delay,
                 )
                 time.sleep(delay)
-        _write_step_summary(tile_id, {}, snapshot_id, nodata=True)
-        elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-        log.info("Done (nodata). Total time: %.1fs", elapsed)
-        return
 
-    skipped = set(target_wys) - set(written_wys)
-    if skipped:
-        log.warning(
-            "Skipped WYs (insufficient observations): %s", sorted(skipped)
-        )
+        log.info("WY%d: committed %s -> %s ('%s')", wy, status, snapshot_id, message)
+        wy_results[wy] = {"status": status, "reason": empty_reason,
+                          "stats": stats, "snapshot": snapshot_id}
+        del metrics, ds_write  # free ~GB-scale arrays before the next year
 
-    # Build per-WY stats for the commit message.
-    # max_consec_snow_days is int16; fill value = np.iinfo(np.int16).min
-    # (-32768) for ocean/no-data; land pixels with no snow have value 0.
-    # "valid_pixels" = pixels with at least 1 consecutive snow day (> 0).
-    # np.isnan() always returns False for integer arrays, so we compare
-    # against the sentinel fill value and zero explicitly.
-    wy_stats = {}
-    for wy, ds_write, input_obs in pending_writes:
-        mcsd = ds_write["max_consec_snow_days"]
-        total = int(mcsd.size)
-        valid = int(np.sum(mcsd.values > 0))
-        coverage = 100.0 * valid / total if total > 0 else 0.0
-        wy_stats[wy] = {
-            "input_obs": input_obs,
-            "valid_pixels": valid,
-            "coverage": coverage,
-        }
+    _write_step_summary(tile_id, wy_results, skipped_ineligible)
 
-    stats_parts = [
-        f"(WY{wy}: input_obs={wy_stats[wy]['input_obs']}, "
-        f"valid_pixels={wy_stats[wy]['valid_pixels']}, "
-        f"coverage={wy_stats[wy]['coverage']:.1f}%)"
-        for wy, _, __ in pending_writes
-    ]
-    commit_message = (
-        f"Tile(h={h}, v={v}) processed. "
-        f"Stats: [{', '.join(stats_parts)}] "
-        f"Special note: {SPECIAL_NOTE_NONE}"
-    )
-
-    # Write all WYs then commit. ConflictDetector handles concurrent commits
-    # from parallel matrix jobs: since each job writes a unique tile region,
-    # there are never real data conflicts and Icechunk rebases automatically.
-    log.info("Writing %d WY(s) to store...", len(pending_writes))
-    while True:
-        try:
-            repo = icechunk.Repository.open(storage, config=repo_config)
-            session = repo.writable_session("main")
-            for wy, ds_write, _ in pending_writes:
-                log.info("WY%d: writing...", wy)
-                ds_write.to_zarr(
-                    session.store, region="auto", mode="r+", zarr_format=3
-                )
-            snapshot_id = session.commit(
-                commit_message, rebase_with=icechunk.ConflictDetector()
-            )
-            log.info(
-                "Committed: '%s...' -> %s", commit_message[:80], snapshot_id
-            )
-            break
-        except Exception as exc:
-            delay = random.uniform(3, 10)
-            log.warning(
-                "Conflict detected, retrying in %.1fs: %s", delay, exc
-            )
-            time.sleep(delay)
-
-    _write_step_summary(tile_id, wy_stats, snapshot_id)
-
+    n_data = sum(1 for r in wy_results.values() if r["status"] == STATUS_DATA)
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-    log.info("Done. Total time: %.1fs", elapsed)
+    log.info(
+        "Done: %d data / %d empty commit(s), %d ineligible skipped. "
+        "Total time: %.1fs",
+        n_data, len(wy_results) - n_data, len(skipped_ineligible), elapsed,
+    )
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # MODIS Snow Phenology
 
-Global snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent (water years 2015–2024).
+Global snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent (water years 2015–2025, extendable — see "Adding new water years" below).
 
 Three variables per pixel per water year:
 
@@ -17,7 +17,7 @@ Cloud filling follows [Wrzesien et al. 2019](https://doi.org/10.1029/2018WR02345
 | Source | MODIS MOD10A2.061 (8-day maximum snow extent) via NASA Earthdata |
 | Spatial resolution | 500 m |
 | Grid | MODIS sinusoidal, 86 400 x 43 200 pixels (global) |
-| Temporal coverage | Water years 2015–2024 (10 years) |
+| Temporal coverage | Water years 2015–2025 (hemisphere-aware: northern WY N = Oct 1 N−1 … Sep 30 N; southern WY N = Apr 1 N … Mar 31 N+1) |
 | Data format | `int16`, fill = `-32768` |
 | Storage | Icechunk on Azure Blob Storage (`uwcryo` / `snowmelt` container) |
 | Zarr format | Zarr v3 + ShardingCodec (shard: `1x2400x2400`, chunk: `1x600x600`) |
@@ -40,7 +40,14 @@ Each MODIS tile (`h<HH>v<VV>`, 2400×2400 pixels, ~1111 km × 926 km) is process
 
 `get_modis_MOD10A2_max_snow_extent()` authenticates to NASA Earthdata via `earthaccess` (using `EARTHDATA_USERNAME` / `EARTHDATA_PASSWORD` environment variables) and downloads all granules covering a date window spanning one water year plus one extra year on each side (for cloud-filling continuity across water year boundaries). Granules are downloaded sequentially into a temporary directory, opened with `rasterio` directly (not rioxarray, to avoid GDAL segfault issues with 100+ HDF4 files), and stacked into an `(time, y, x)` DataArray.
 
-> **Note:** Processing previously fetched data from Microsoft Planetary Computer via STAC. PC stopped archiving MOD10A2 in mid-2025 when MODIS Terra was decommissioned (Nov 2024). The old implementation is preserved as `_get_modis_MOD10A2_max_snow_extent_planetary_computer` for reference.
+> **Why NSIDC/earthaccess and not Planetary Computer:** Processing previously fetched MOD10A2 from Microsoft Planetary Computer via STAC, but the **PC mirror stopped updating in mid-2025**. MODIS Terra was *not* decommissioned — it is still observing and MOD10A2 is still produced (verified against NASA CMR in July 2026: granules through 2026-07-12, full coverage of both hemispheres' WY2025 windows). Only the mirror died, so the pipeline fetches from the authoritative NSIDC archive via `earthaccess` (which queries CMR directly). The old PC implementation is preserved as `_get_modis_MOD10A2_max_snow_extent_planetary_computer` for reference. Before extending to a new water year, sanity-check that granules are still flowing:
+>
+> ```bash
+> curl -s "https://cmr.earthdata.nasa.gov/search/granules.json?short_name=MOD10A2&page_size=1&sort_key=-start_date" \
+>   | python3 -c "import sys,json; print(json.load(sys.stdin)['feed']['entry'][0]['time_start'])"
+> ```
+>
+> (Terra's orbital drift is the eventual trigger for a VIIRS-based successor, but that is a data-quality watch item, not a current availability problem.)
 
 ### Step 2 — Polar night correction (Arctic/Antarctic tiles only)
 
@@ -87,15 +94,18 @@ Fill value (`-32768`) is used for ocean, pixels with no snow, and pixels with in
 
 ### Step 7 — Write to Icechunk store
 
-All water years for the tile are written together in a single Icechunk commit via `xr.Dataset.to_zarr(..., region='auto', mode='r+')`. Tile coordinates are snapped to the store's exact grid coordinates to prevent float-precision mismatches. Concurrent parallel tile jobs are handled via `icechunk.ConflictDetector` with randomized retry backoff — since each job writes to a disjoint tile region, there are never real data conflicts and Icechunk rebases automatically.
+Each water year is written and committed **individually** via `xr.Dataset.to_zarr(..., region='auto', mode='r+')` — one commit per (tile, water year), mirroring the [global_snowmelt_runoff_onset](https://github.com/egagli/global_snowmelt_runoff_onset) pipeline. Tile coordinates are snapped to the store's exact grid coordinates to prevent float-precision mismatches. Concurrent parallel tile jobs are handled via `icechunk.ConflictDetector` with randomized retry backoff — since each job writes to a disjoint tile region, there are never real data conflicts and Icechunk rebases automatically. Per-year commits make runs crash-safe: finished years keep their commits, unfinished years never commit and stay `missing`.
 
-The commit message encodes per-water-year statistics:
+Every commit carries **structured metadata** (see `modis_snow_phenology/status.py`) — the machine-readable record that all status derivation parses (never the message strings):
 
-```text
-Tile(h=10, v=4) processed. Stats: [(WY2015: input_obs=46, valid_pixels=1234567, coverage=21.4%), ...] Special note: None
+```json
+{"schema": 1, "kind": "tile_year", "tile": [10, 4], "water_year": 2025,
+ "hemisphere": "northern", "status": "data", "config_version": "v1",
+ "stats": {"input_obs": 46, "valid_pixels": 1234567, "coverage": 21.4},
+ "duration_s": 312.7}
 ```
 
-Tiles with no MODIS input for any water year commit an empty snapshot with `Special note: No input data found...`.
+Water years with no usable input commit an **empty snapshot** with `status: "empty"` and an `empty_reason` (`no_granules` — the archive has nothing for the fetch window; `insufficient_obs` — fewer than 5 observations inside the target WY). Empty commits mark the year as attempted so it is never re-dispatched; absence of a commit means "not done".
 
 ## Getting Started
 
@@ -117,30 +127,33 @@ Run `notebooks/01_initialize.ipynb`:
 
 Trigger **Process All Tiles** in GitHub Actions:
 
-- Queries Icechunk commit history to find unprocessed tiles
-- Fans out up to 256 tiles per batch; batches run sequentially, tiles within a batch run in parallel
-- Re-entrant: already-processed and nodata tiles are automatically skipped
+- Queries Icechunk commit history for missing **(tile, water year)** pairs — eligible years without a commit (data or verified-empty)
+- Hemisphere-aware eligibility: a water year is only dispatched once its season has fully elapsed for the tile's hemisphere plus `TRAILING_BUFFER_DAYS` (northern tiles pick up a new WY ~6 months before southern ones)
+- Fans out up to 256 tiles per batch; batches run sequentially, tiles within a batch run in parallel; each job processes only its missing years
+- Re-entrant: committed years (data and empty alike) are automatically skipped
 
-To reprocess everything: trigger with `which_tiles = all` (modify `process_all_tiles.yml`).
+To reprocess everything: trigger with `which_tiles = all` (all to_process tiles × all their eligible years — newer commits supersede older ones in the status derivation).
 
-To process a single tile manually: trigger **Process Single Tile** with `h` and `v` inputs.
+To process a single tile manually: trigger **Process Single Tile** with `h`, `v`, and optionally `water_years` (default `eligible`; or a comma list like `2025`). No mode can process an ineligible year — the processor vetoes them so a half-elapsed season is never committed.
 
 ### Monitor progress
 
 Processing status is derived at runtime from the Icechunk commit history:
 
 ```python
-import icechunk
-import xarray as xr
 import sys
 sys.path.insert(0, "/path/to/MODIS_snow_phenology")
-from modis_snow_phenology.config import Config, get_processing_status_gdf
+from modis_snow_phenology.config import Config
+from modis_snow_phenology.status import get_tile_status_gdf, get_remaining_work
 
 config = Config("config/config_with_secrets_v1.txt")
-repo = config.open_icechunk_repo()
-gdf = get_processing_status_gdf(repo, config.TILE_LIST_PATH, config.years)
+gdf = get_tile_status_gdf(config)
 gdf["processing_status"].value_counts()
-# processed / nodata / unprocessed / skip
+# processed / partial / nodata / unprocessed / skip
+# plus per-year columns: {yr}_status ('data'/'empty'/'missing'/'ineligible'),
+# {yr}_valid_pixels, {yr}_input_obs, and 'missing_wys' per tile
+
+get_remaining_work(config)   # [{"h": 10, "v": 4, "water_years": [2025]}, ...]
 ```
 
 ### Read the dataset
@@ -154,9 +167,44 @@ config = Config("config/config_with_secrets_v1.txt")
 repo = config.open_icechunk_repo()
 session = repo.readonly_session("main")
 ds = xr.open_zarr(session.store, zarr_format=3, consolidated=False)
-# Dimensions: (water_year: 10, y: 43200, x: 86400)
+# Dimensions: (water_year: 11, y: 43200, x: 86400)
 # Data vars:  SAD_DOWY, SDD_DOWY, max_consec_snow_days
 ```
+
+### Adding new water years (hemisphere-aware)
+
+A water year closes at different times in each hemisphere (northern WY N:
+Sep 30 N; southern WY N: Mar 31 N+1), so one hemisphere is ready to process
+~6 months before the other. The pipeline handles the stagger automatically:
+
+1. **Reminder** — the **Water Year Watch** workflow (monthly cron) opens a
+   GitHub issue the moment a (water year, hemisphere) passes its season end +
+   `TRAILING_BUFFER_DAYS`, with the exact checklist. One issue per
+   hemisphere-year, ever (deduplicated by title, open or closed).
+2. **Extend the store** (once per new water year; cheap, metadata-only):
+
+   ```bash
+   # after bumping WY_END in the config
+   pixi run python processing/scripts/extend_store_water_years.py \
+       --config-file config/config_with_secrets_v1.txt
+   ```
+
+3. **Dispatch** — trigger **Process All Tiles** (`which_tiles = missing`).
+   Only tiles whose hemisphere-season has closed pick up the new year; the
+   other hemisphere's tiles follow automatically on a later dispatch, with no
+   manual coordination. The eligibility gate exists in both the dispatcher
+   (`status.get_remaining_work`) and the processor (`--water-years` veto), so
+   a half-elapsed season can never be committed.
+4. **Downstream** — rebuild the multiscale pyramid
+   (`map/create_zarr_multiscales.ipynb`), regenerate the map status geojson,
+   add the year to `WATER_YEARS` in `map/lib/store.ts`, and let the
+   snowmelt-runoff repo's own watcher pick it up from there.
+
+Why the buffer: the cloud filling is bidirectional (ffill **and** bfill), so
+end-of-season cloudy pixels need post-season observations to resolve; the
+fetch window already spans ±1 water year and degrades gracefully, and ~90
+days of trailing data keeps the bfill context healthy without waiting a full
+extra year.
 
 For local development, copy `config/config_v1.txt` to `config/config_with_secrets_v1.txt` and replace the `ENV` placeholders with real credentials (that file is gitignored).
 

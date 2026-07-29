@@ -8,7 +8,10 @@ VERSION = v1
 
 TILE_LIST_PATH = processing/tile_list.geojson
 WY_START = 2015
-WY_END = 2024
+WY_END = 2025
+# Days past a hemisphere's season end (N: Sep 30, S: Mar 31 next year) before
+# that water year may be processed — bfill context + compositing/NSIDC latency.
+TRAILING_BUFFER_DAYS = 90
 SHARD_SHAPE = 1, 2400, 2400
 INNER_CHUNK_SHAPE = 1, 600, 600
 

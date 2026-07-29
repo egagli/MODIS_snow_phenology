@@ -14,7 +14,9 @@ const CARD_WIDTH = 340
 
 const TILE_STATUS_META: Record<string, { label: string; color: string }> = {
   processed:   { label: 'processed',   color: '#22c55e' },
+  partial:     { label: 'partial',     color: '#eab308' },
   unprocessed: { label: 'unprocessed', color: '#ef4444' },
+  nodata:      { label: 'nodata',      color: '#f97316' },
   skip:        { label: 'skip',        color: '#3b82f6' },
 }
 

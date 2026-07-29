@@ -42,7 +42,9 @@ def get_modis_MOD10A2_max_snow_extent(
 
     Replaced Planetary Computer STAC + odc.stac; see
     _get_modis_MOD10A2_max_snow_extent_planetary_computer for the old implementation.
-    Reason: PC stopped archiving MOD10A2 ~June 2025 (MODIS Terra decommissioned Nov 2024).
+    Reason: the PC MIRROR stopped updating ~June 2025. MODIS Terra was NOT
+    decommissioned — MOD10A2 is still produced (CMR-verified 2026-07), so we
+    fetch from the authoritative NSIDC archive via earthaccess/CMR instead.
 
     To revert to Planetary Computer:
       1. Rename this function to _get_modis_MOD10A2_max_snow_extent_earthaccess
@@ -178,10 +180,11 @@ def _parse_modis_date(filepath: Path):
 
 
 # DEPRECATED — kept for reference and easy revert.
-# Stopped working ~June 2025: Planetary Computer no longer archives MOD10A2
-# (MODIS Terra decommissioned Nov 2024). PC STAC returns 0 items for queries
-# past the archive cutoff, causing odc.stac.load to fail with
-# "Failed to auto-guess CRS/resolution."
+# Stopped working ~June 2025: the Planetary Computer MIRROR of MOD10A2
+# stopped updating (the product itself is still produced — Terra was not
+# decommissioned; see get_modis_MOD10A2_max_snow_extent). PC STAC returns
+# 0 items for queries past the mirror cutoff, causing odc.stac.load to fail
+# with "Failed to auto-guess CRS/resolution."
 def _get_modis_MOD10A2_max_snow_extent_planetary_computer(
     vertical_tile, horizontal_tile, start_date, end_date, chunks={"time": -1, "x": 240, "y": 240},
     max_retries=5,

@@ -1,0 +1,26 @@
+name: Water Year Watch
+
+# Opens a GitHub issue when a (water year, hemisphere) season has fully
+# elapsed (+ trailing buffer) and is ready to process. Purely date-based and
+# deduplicated by issue title, so each hemisphere-year reminds exactly once —
+# including the southern-hemisphere season that closes ~6 months after the
+# northern one of the same water year.
+
+on:
+  schedule:
+    - cron: "0 12 2 * *" # monthly; eligibility dates move slowly
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Open issues for newly eligible hemisphere-years
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 processing/scripts/water_year_watch.py

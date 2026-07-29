@@ -37,11 +37,12 @@ def main():
     )
     args = parser.parse_args()
 
-    from modis_snow_phenology.config import Config, get_processing_status_gdf
+    from modis_snow_phenology.config import Config
+    from modis_snow_phenology.status import get_tile_status_gdf
 
     config = Config(args.config)
     repo = config.open_icechunk_repo()
-    gdf = get_processing_status_gdf(repo, config.TILE_LIST_PATH, config.years)
+    gdf = get_tile_status_gdf(config, repo=repo)
 
     # Clip tile geometries to the valid sinusoidal domain before reprojecting.
     # The MODIS tile grid is slightly larger than the sinusoidal ellipse: the

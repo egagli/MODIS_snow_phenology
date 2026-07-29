@@ -16,7 +16,7 @@ on:
       which_tiles:
         type: string
         required: false
-        default: 'unprocessed'
+        default: 'missing'
     secrets:
       AZURE_STORAGE_SAS_TOKEN:
         required: true
@@ -65,7 +65,7 @@ jobs:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
 
     # Explicit job name enables log identification by tile
-    name: process-tile-h${{ matrix.tile.h }}-v${{ matrix.tile.v }}
+    name: process-tile-h${{ matrix.tile.h }}-v${{ matrix.tile.v }}-wy${{ matrix.tile.water_years }}
 
     steps:
       - uses: actions/checkout@v4
@@ -87,4 +87,5 @@ jobs:
           pixi run -e ci python processing/scripts/process_single_tile.py \
             --h ${{ matrix.tile.h }} \
             --v ${{ matrix.tile.v }} \
+            --water-years "${{ matrix.tile.water_years }}" \
             --config-file ${{ inputs.config_file }}
