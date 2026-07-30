@@ -29,7 +29,7 @@ export const VARIABLE_CONFIGS: Record<
 }
 
 export const WATER_YEARS = [
-  2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024,
+  2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025,
 ] as const
 
 export const TILES_STATUS_URL =
