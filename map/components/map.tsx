@@ -516,7 +516,15 @@ export const Map = () => {
     ALL_VARIABLES.forEach((varName) => {
       const isActive = varName === state.variable
       const vCfg = VARIABLE_CONFIGS[varName]
-      // x!=x detects NaN portably; <-100 catches raw fill -32768 if NaN conversion is skipped
+      // Discard NoData. Two arms, both deliberate — do not simplify:
+      //   x!=x        portable NaN test. zarr-layer masks values equal to the *Zarr*
+      //               fill_value (it ignores the CF _FillValue attribute entirely).
+      //   x < -100.0  catches raw -32768 that reaches the shader unmasked. This is the
+      //               arm that saved us when the pyramid was written with Zarr
+      //               fill_value=0 instead of -32768: fixedDataScale is 1, so the raw
+      //               fill arrives unscaled and this guard discards it. Keep it as
+      //               insurance against any store written without the explicit
+      //               'fill_value' encoding (see create_zarr_multiscales.ipynb).
       const customFrag = `
         if (${varName} != ${varName} || ${varName} < -100.0) { discard; }
         float rescaled = (${varName} - clim.x) / (clim.y - clim.x);
