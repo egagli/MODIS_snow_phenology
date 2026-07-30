@@ -98,7 +98,7 @@ const SidebarContent = () => {
           MODIS snow phenology
         </Box>
         <div style={{ fontSize: 11, color: DIM, lineHeight: 1.6, marginBottom: 4 }}>
-          A global, 500 meter resolution snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent covering water years 2015 to 2024. Each pixel stores three annual metrics: snow appearance date [DOWY], snow disappearance date [DOWY], and longest continuous snow period [days]. Cloud gaps are filled using a bidirectional temporal interpolation method similar to Wrzesien et al. (2019), and polar-night periods are corrected before cloud-filling to prevent false no-snow classifications at high latitudes. For more information, please check out the github repo linked below.
+          A global, 500 meter resolution snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent covering water years 2015 to 2025. Each pixel stores three annual metrics: snow appearance date [DOWY], snow disappearance date [DOWY], and longest continuous snow period [days]. Cloud gaps are filled using a bidirectional temporal interpolation method similar to Wrzesien et al. (2019), and polar-night periods are corrected before cloud-filling to prevent false no-snow classifications at high latitudes. For more information, please check out the github repo linked below.
         </div>
         <a
           href='https://github.com/egagli/MODIS_snow_phenology'
