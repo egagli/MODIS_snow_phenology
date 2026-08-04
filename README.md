@@ -1,5 +1,7 @@
 # MODIS Snow Phenology
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21783366.svg)](https://doi.org/10.5281/zenodo.21783366)
+
 Global snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent (water years 2015–2025, extendable — see "Adding new water years" below).
 
 Three variables per pixel per water year:
@@ -8,7 +10,25 @@ Three variables per pixel per water year:
 - **SDD_DOWY** — Snow Disappearance Date (day of water year; defined as first day with no snow)
 - **max_consec_snow_days** — Length of the longest continuous snow period (days)
 
-Cloud filling follows [Wrzesien et al. 2019](https://doi.org/10.1029/2018WR023453). No-data pixels use fill value `int16` minimum (`-32768`).
+Cloud filling follows [Wrzesien et al. 2019](https://doi.org/10.1029/2019WR025350). No-data pixels use fill value `int16` minimum (`-32768`).
+
+## Data product
+
+The dataset is published on Zenodo as a single Zarr v3 archive (3.6 GB), exported by [`notebooks/download_dataset.ipynb`](notebooks/download_dataset.ipynb). See [`zenodo/zenodo_metadata.md`](zenodo/zenodo_metadata.md) for the record metadata.
+
+> Gagliano, E. (2026). *Global MODIS snow phenology: snow appearance date, snow disappearance date, and maximum consecutive snow days, water years 2015–2025* (1.0.0) [Data set]. Zenodo. <https://doi.org/10.5281/zenodo.21783366>
+
+The archive is stored uncompressed, so it reads without unzipping:
+
+```python
+import xarray as xr
+import zarr
+
+store = zarr.storage.ZipStore("modis_snow_phenology_v1.zarr.zip", mode="r")
+ds = xr.open_zarr(store, zarr_format=3, consolidated=False, decode_coords="all")
+```
+
+This supersedes [zenodo.15692530](https://doi.org/10.5281/zenodo.15692530) (water years 2015–2024), produced by the predecessor repo [MODIS_seasonal_snow_mask](https://github.com/egagli/MODIS_seasonal_snow_mask).
 
 ## Dataset
 
@@ -239,7 +259,11 @@ MODIS_snow_phenology/
 │   └── config.py                   Config loader + Icechunk helpers + tile status
 ├── notebooks/
 │   ├── 01_initialize.ipynb         Tile list creation + Icechunk store initialization
-│   └── 02_compare_with_v1.ipynb    Comparison notebook for validating reprocessed data
+│   ├── 02_compare_with_v1.ipynb    Comparison notebook for validating reprocessed data
+│   └── download_dataset.ipynb      Export the store to a plain Zarr v3 .zip for Zenodo
+├── dataset/                        Exported Zarr store + .zip staged for Zenodo (gitignored)
+├── zenodo/
+│   └── zenodo_metadata.md          Record metadata + upload checklist for publication
 ├── processing/
 │   ├── scripts/
 │   │   ├── process_single_tile.py  Tile processor (fetch → cloud-fill → metrics → commit)
@@ -259,6 +283,7 @@ MODIS_snow_phenology/
 │   ├── process_batch.yml           Reusable workflow: fan out one batch of ≤256 tile jobs
 │   ├── process_single_tile.yml     Manually triggered single-tile processor
 │   └── deploy-map.yml              Build + deploy Next.js map to GitHub Pages
+├── CITATION.cff                    Citation metadata
 ├── pixi.toml                       Environment definition
 └── pyproject.toml                  Package metadata (hatchling build)
 ```

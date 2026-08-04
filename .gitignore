@@ -10,6 +10,10 @@ build/
 # data folder in notebooks folder
 notebooks/mod10a2_data/
 
+# exported dataset staged for Zenodo (see dataset/README.md) — keep the README, not the data
+dataset/*
+!dataset/README.md
+
 # Pixi
 .pixi/
 

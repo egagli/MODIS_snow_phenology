@@ -1,0 +1,68 @@
+cff-version: 1.2.0
+message: "If you use this software or the dataset it produces, please cite it using the metadata from this file."
+type: software
+title: "Global MODIS snow phenology, water years 2015-2025"
+authors:
+  - given-names: Eric
+    family-names: Gagliano
+    email: egagli@uw.edu
+    affiliation: University of Washington
+    orcid: "https://orcid.org/0000-0002-4362-6260"
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21783366
+    description: "Published dataset (Zarr archive) on Zenodo"
+repository-code: "https://github.com/egagli/MODIS_snow_phenology"
+url: "https://egagli.github.io/MODIS_snow_phenology/"
+abstract: >-
+  Global 500 m snow phenology dataset derived from the MODIS MOD10A2 Version 61
+  8-day maximum snow extent product for water years 2015-2025. Provides snow
+  appearance date, snow disappearance date, and the length of the longest
+  continuous snow-covered period per pixel per water year, as day of water year.
+keywords:
+  - snow
+  - snow cover
+  - snow phenology
+  - snow appearance date
+  - snow disappearance date
+  - MODIS
+  - MOD10A2
+  - remote sensing
+  - hydrology
+  - cryosphere
+  - zarr
+# TODO: this repo has no LICENSE file yet. The published dataset is CC-BY-4.0;
+# add a code license (siblings use MIT) and set it here.
+version: "1.0.0"
+references:
+  - type: data
+    title: "MODIS/Terra Snow Cover 8-Day L3 Global 500m SIN Grid, Version 61"
+    authors:
+      - family-names: Hall
+        given-names: Dorothy K.
+      - family-names: Riggs
+        given-names: George A.
+    year: 2021
+    doi: 10.5067/MODIS/MOD10A2.061
+    publisher:
+      name: "NASA National Snow and Ice Data Center DAAC"
+  - type: article
+    title: "Characterizing biases in mountain snow accumulation from global data sets"
+    authors:
+      - family-names: Wrzesien
+        given-names: Melissa L.
+      - family-names: Pavelsky
+        given-names: Tamlin M.
+      - family-names: Durand
+        given-names: Michael T.
+      - family-names: Dozier
+        given-names: Jeff
+      - family-names: Lundquist
+        given-names: Jessica D.
+    journal: "Water Resources Research"
+    year: 2019
+    volume: 55
+    issue: 11
+    start: 9873
+    end: 9891
+    doi: 10.1029/2019WR025350
