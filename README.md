@@ -1,6 +1,9 @@
 # MODIS Snow Phenology
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21783366.svg)](https://doi.org/10.5281/zenodo.21783366)
+[![Dataset DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21783366.svg)](https://doi.org/10.5281/zenodo.21783366)
+[![Repository DOI](https://zenodo.org/badge/1224935546.svg)](https://doi.org/10.5281/zenodo.21783174)
+
+Two Zenodo records: the first badge is the **dataset** (the Zarr archive described below), the second is the **archived source repository** (GitHub release `v1.0`). Cite the dataset for the data, the repository for the code.
 
 Global snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent (water years 2015–2025, extendable — see "Adding new water years" below).
 

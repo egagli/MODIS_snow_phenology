@@ -12,6 +12,9 @@ identifiers:
   - type: doi
     value: 10.5281/zenodo.21783366
     description: "Published dataset (Zarr archive) on Zenodo"
+  - type: doi
+    value: 10.5281/zenodo.21783174
+    description: "Archived source repository on Zenodo (all versions)"
 repository-code: "https://github.com/egagli/MODIS_snow_phenology"
 url: "https://egagli.github.io/MODIS_snow_phenology/"
 abstract: >-
