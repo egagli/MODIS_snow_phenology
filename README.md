@@ -1,5 +1,8 @@
 # MODIS Snow Phenology
 
+[![DOI](https://zenodo.org/badge/1224935546.svg)](https://doi.org/10.5281/zenodo.21783174)  
+
+
 Global snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent (water years 2015–2025, extendable — see "Adding new water years" below).
 
 Three variables per pixel per water year:
