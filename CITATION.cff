@@ -69,3 +69,24 @@ references:
     start: 9873
     end: 9891
     doi: 10.1029/2019WR025350
+  - type: article
+    title: "A global high-resolution dataset of snowmelt runoff onset timing from Sentinel-1 SAR, 2015-2024"
+    authors:
+      - given-names: Eric
+        family-names: Gagliano
+        affiliation: University of Washington
+        orcid: "https://orcid.org/0000-0002-4362-6260"
+      - given-names: David
+        family-names: Shean
+        affiliation: University of Washington
+      - given-names: Scott
+        family-names: Henderson
+        affiliation: University of Washington
+    journal: "Earth System Science Data"
+    year: 2026
+    volume: 18
+    issue: 8
+    start: 5871
+    end: 5894
+    doi: 10.5194/essd-18-5871-2026
+    notes: "Dataset that uses this snow phenology product for its snow-season search windows."

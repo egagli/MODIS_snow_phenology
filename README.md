@@ -15,6 +15,8 @@ Three variables per pixel per water year:
 
 Cloud filling follows [Wrzesien et al. 2019](https://doi.org/10.1029/2019WR025350). No-data pixels use fill value `int16` minimum (`-32768`).
 
+These phenology dates define the per-pixel snow-season search windows used by the [global snowmelt runoff onset dataset](https://github.com/egagli/global_snowmelt_runoff_onset), described in [Gagliano et al. (2026), *Earth Syst. Sci. Data*, 18, 5871–5894](https://doi.org/10.5194/essd-18-5871-2026).
+
 ## Data product
 
 The dataset is published on Zenodo as a single Zarr v3 archive (3.6 GB), exported by [`notebooks/download_dataset.ipynb`](notebooks/download_dataset.ipynb). See [`zenodo/zenodo_metadata.md`](zenodo/zenodo_metadata.md) for the record metadata.
