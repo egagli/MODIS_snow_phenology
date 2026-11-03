@@ -8,6 +8,7 @@ import {
   WATER_YEARS,
   type Variable,
 } from '../lib/store'
+import { track, trackDebounced } from '../lib/analytics'
 
 const COLORMAPS = [
   'rainbow', 'fire', 'earth', 'water', 'warm', 'cool',
@@ -126,7 +127,10 @@ const SidebarContent = () => {
             const entry = (Object.entries(VARIABLE_LABELS) as [Variable, string][]).find(
               ([, label]) => obj[label]
             )
-            if (entry) setVariable(entry[0])
+            if (entry && entry[0] !== variable) {
+              setVariable(entry[0])
+              track('map_layer_change', { layer: entry[0] })
+            }
           }}
         />
         <div style={{ fontSize: 11, color: DIM, marginTop: 4 }}>
@@ -145,15 +149,20 @@ const SidebarContent = () => {
           max={WATER_YEARS.length - 1}
           step={1}
           value={waterYearIndex}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-            setWaterYearIndex(parseInt(e.target.value))
-          }
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            const i = parseInt(e.target.value)
+            setWaterYearIndex(i)
+            trackDebounced('map_time_change', { water_year: WATER_YEARS[i] })
+          }}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
           {WATER_YEARS.map((year, i) => (
             <button
               key={year}
-              onClick={() => setWaterYearIndex(i)}
+              onClick={() => {
+                setWaterYearIndex(i)
+                trackDebounced('map_time_change', { water_year: year })
+              }}
               style={{
                 background: 'none', border: 'none', padding: 0, margin: 0,
                 fontSize: 9, lineHeight: 1, cursor: 'pointer', fontFamily: 'monospace',

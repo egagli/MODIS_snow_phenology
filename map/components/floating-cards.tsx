@@ -1,5 +1,6 @@
 import React, { CSSProperties, useState, useEffect } from 'react'
 import { useStore, WATER_YEARS, TILES_STATUS_URL, type Variable, type Basemap } from '../lib/store'
+import { track } from '../lib/analytics'
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -257,7 +258,10 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
       <div style={sectionLabelStyle}>basemap</div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         {BASEMAP_OPTS.map((opt) => (
-          <button key={opt.value} onClick={() => setBasemap(opt.value)} style={chip(basemap === opt.value)}>
+          <button key={opt.value} onClick={() => {
+            if (opt.value !== basemap) track('map_basemap_change', { basemap: opt.value })
+            setBasemap(opt.value)
+          }} style={chip(basemap === opt.value)}>
             {opt.label}
           </button>
         ))}
@@ -265,7 +269,10 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
       <div style={sectionLabelStyle}>projection</div>
       <div style={{ display: 'flex', gap: 6 }}>
         {[{ label: 'globe', value: true }, { label: 'mercator', value: false }].map((opt) => (
-          <button key={String(opt.value)} onClick={() => setGlobeProjection(opt.value)} style={chip(globeProjection === opt.value)}>
+          <button key={String(opt.value)} onClick={() => {
+            if (opt.value !== globeProjection) track('map_projection_change', { projection: opt.label })
+            setGlobeProjection(opt.value)
+          }} style={chip(globeProjection === opt.value)}>
             {opt.label}
           </button>
         ))}
