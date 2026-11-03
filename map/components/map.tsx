@@ -16,6 +16,7 @@ import {
   type ClickInfo,
   type TileClickInfo,
 } from '../lib/store'
+import { track } from '../lib/analytics'
 
 // Regions known to produce MODIS snow detection artifacts.
 // Checked against the viewport on every moveend/zoomend.
@@ -365,6 +366,7 @@ export const Map = () => {
         const props = feature.properties as Record<string, unknown>
         const processing_status = (props.processing_status as string) ?? 'skip'
         setTileClickInfo({ ...props, processing_status } as TileClickInfo)
+        track('map_tile_query', { processing_status })
         const hlSrc = map.getSource('tiles-highlight-source') as maplibregl.GeoJSONSource | undefined
         hlSrc?.setData({
           type: 'FeatureCollection',
@@ -571,6 +573,7 @@ export const Map = () => {
       markerRef.current?.remove()
       markerRef.current = new maplibregl.Marker({ element: createPulsingMarkerElement(), anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
       requeryAllVariables({ val: false })
+      track('map_point_query')
     }
     map.on('click', clickHandler)
 
