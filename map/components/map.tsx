@@ -17,6 +17,7 @@ import {
   type TileClickInfo,
 } from '../lib/store'
 import { track } from '../lib/analytics'
+import { readUrlState, registerViewGetter, scheduleUrlUpdate, getPendingTile, clearPendingTile } from '../lib/url-state'
 
 // Regions known to produce MODIS snow detection artifacts.
 // Checked against the viewport on every moveend/zoomend.
@@ -274,6 +275,7 @@ export const Map = () => {
       layout: { visibility: 'none' as const },
     }
     const styleLayers = [pmLayers[0], satLayer, topoLayer, ...pmLayers.slice(1)]
+    const urlView = readUrlState().view
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
@@ -313,12 +315,18 @@ export const Map = () => {
         },
         layers: styleLayers,
       },
-      center: [0, 20],
-      zoom: window.innerWidth < 640 ? 1.2 : 2.4,
+      center: urlView ? [urlView.lng, urlView.lat] : [0, 20],
+      zoom: urlView ? urlView.zoom : window.innerWidth < 640 ? 1.2 : 2.4,
+      bearing: urlView?.bearing ?? 0,
+      pitch: urlView?.pitch ?? 0,
     })
 
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
     mapRef.current = map
+    registerViewGetter(() => {
+      const c = map.getCenter()
+      return { lng: c.lng, lat: c.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() }
+    })
 
     map.on('load', () => {
       const emptyFC = { type: 'FeatureCollection' as const, features: [] }
@@ -379,10 +387,32 @@ export const Map = () => {
       map.on('mouseenter', 'tiles-fill', cursorOn)
       map.on('mouseleave', 'tiles-fill', cursorOff)
 
+      // Re-select a processing-grid tile named in the URL (#grid=1&tile=h10v04).
+      const pendingTile = getPendingTile()
+      if (pendingTile) {
+        fetch(TILES_STATUS_URL)
+          .then((r) => r.json())
+          .then((data: { features: Array<{ geometry: GeoJSON.Geometry; properties: Record<string, unknown> }> }) => {
+            const f = data.features.find((ft) => ft.properties?.tile === pendingTile)
+            if (!f || !useStore.getState().showTiles || useStore.getState().tileClickInfo) return
+            const processing_status = (f.properties.processing_status as string) ?? 'skip'
+            setTileClickInfo({ ...f.properties, processing_status } as TileClickInfo)
+            clearPendingTile()
+            const hlSrc = map.getSource('tiles-highlight-source') as maplibregl.GeoJSONSource | undefined
+            hlSrc?.setData({
+              type: 'FeatureCollection',
+              features: [{ type: 'Feature', geometry: f.geometry, properties: {} }],
+            })
+          })
+          .catch(() => {})
+      }
+
       setIsMapLoaded(true)
+      scheduleUrlUpdate(0)
     })
 
     return () => {
+      registerViewGetter(null)
       markerRef.current?.remove()
       markerRef.current = null
       map.remove()
@@ -412,10 +442,12 @@ export const Map = () => {
       setActiveWarning(null)
     }
 
+    const onMoveEnd = () => scheduleUrlUpdate()
     map.on('moveend', check)
     map.on('zoomend', check)
+    map.on('moveend', onMoveEnd)
     check()
-    return () => { map.off('moveend', check); map.off('zoomend', check) }
+    return () => { map.off('moveend', check); map.off('zoomend', check); map.off('moveend', onMoveEnd) }
   }, [isMapLoaded, setActiveWarning, setZoomLevel])
 
   // Projection toggle
@@ -576,6 +608,18 @@ export const Map = () => {
       track('map_point_query')
     }
     map.on('click', clickHandler)
+
+    // A point restored from the URL (#pt=lat,lng) arrives as a clickInfo with
+    // no marker yet: place the marker and query it like a click.
+    const restored = useStore.getState().clickInfo
+    if (restored && !lastClickRef.current && !useStore.getState().showTiles) {
+      lastClickRef.current = { lng: restored.lng, lat: restored.lat }
+      markerRef.current?.remove()
+      markerRef.current = new maplibregl.Marker({ element: createPulsingMarkerElement(), anchor: 'center' })
+        .setLngLat([restored.lng, restored.lat])
+        .addTo(map)
+      requeryAllVariables({ val: false })
+    }
 
     return () => {
       cancelled.val = true

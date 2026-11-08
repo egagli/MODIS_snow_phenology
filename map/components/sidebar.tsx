@@ -1,4 +1,4 @@
-import React, { useEffect, useState, CSSProperties } from 'react'
+import React, { useEffect, useRef, useState, CSSProperties } from 'react'
 import { Box, Flex } from 'theme-ui'
 import { Filter, Slider, Colorbar, Input } from '@carbonplan/components'
 import { useThemedColormap } from '@carbonplan/colormaps'
@@ -6,16 +6,11 @@ import {
   useStore,
   VARIABLE_CONFIGS,
   WATER_YEARS,
+  COLORMAPS,
   type Variable,
 } from '../lib/store'
 import { track, trackDebounced } from '../lib/analytics'
-
-const COLORMAPS = [
-  'rainbow', 'fire', 'earth', 'water', 'warm', 'cool',
-  'reds', 'oranges', 'yellows', 'greens', 'teals', 'blues',
-  'purples', 'pinks', 'greys', 'wind', 'heart', 'sinebow',
-  'pinkgreen', 'redteal', 'orangeblue', 'yellowpurple',
-]
+import { buildShareUrl } from '../lib/url-state'
 
 export const SIDEBAR_WIDTH = 380
 const BG = 'rgba(22,25,30,0.96)'
@@ -30,6 +25,86 @@ const sectionLabelStyle: CSSProperties = {
   color: DIM,
   fontWeight: 600,
   marginBottom: 8,
+}
+
+// "Share this view": copies a link to the map's page on egagli.github.io that
+// reopens it with the current view (see lib/url-state.ts). If the clipboard is
+// unavailable, the link is shown selected in a read-only field instead.
+const ShareButton = () => {
+  const [status, setStatus] = useState<'idle' | 'copied' | 'fallback'>('idle')
+  const [url, setUrl] = useState('')
+  const fieldRef = useRef<HTMLInputElement>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+  useEffect(() => {
+    if (status === 'fallback') fieldRef.current?.select()
+  }, [status, url])
+
+  const share = () => {
+    const link = buildShareUrl()
+    setUrl(link)
+    const fallback = () => {
+      setStatus('fallback')
+      track('map_share', { result: 'fallback' })
+    }
+    try {
+      navigator.clipboard
+        .writeText(link)
+        .then(() => {
+          setStatus('copied')
+          track('map_share', { result: 'copied' })
+          clearTimeout(timerRef.current)
+          timerRef.current = setTimeout(() => setStatus('idle'), 2000)
+        })
+        .catch(fallback)
+    } catch {
+      fallback()
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <button
+        onClick={share}
+        title='Copy a link that reopens the map with this view'
+        style={{
+          padding: '4px 10px',
+          borderRadius: 4,
+          border: `1px solid ${status === 'copied' ? ACCENT : BORDER}`,
+          background: status === 'copied' ? ACCENT : 'transparent',
+          color: status === 'copied' ? '#fff' : TEXT,
+          cursor: 'pointer',
+          fontSize: 11,
+          transition: 'background 0.15s, color 0.15s',
+        }}
+      >
+        {status === 'copied' ? 'Link copied' : 'Share this view'}
+      </button>
+      {status === 'fallback' && (
+        <input
+          ref={fieldRef}
+          readOnly
+          value={url}
+          aria-label='Link to this view'
+          onFocus={(e) => e.currentTarget.select()}
+          style={{
+            display: 'block',
+            width: '100%',
+            marginTop: 6,
+            background: '#1e2128',
+            color: TEXT,
+            border: `1px solid ${BORDER}`,
+            borderRadius: 4,
+            fontSize: 11,
+            padding: '4px 6px',
+            fontFamily: 'monospace',
+            boxSizing: 'border-box',
+          }}
+        />
+      )}
+    </div>
+  )
 }
 
 const VARIABLE_LABELS: Record<Variable, string> = {
@@ -109,6 +184,7 @@ const SidebarContent = () => {
         >
           egagli/MODIS_snow_phenology ↗
         </a>
+        <ShareButton />
       </div>
 
       <div style={{ borderTop: `1px solid ${BORDER}` }} />

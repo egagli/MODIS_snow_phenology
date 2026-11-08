@@ -28,6 +28,13 @@ export const VARIABLE_CONFIGS: Record<
   },
 }
 
+export const COLORMAPS: string[] = [
+  'rainbow', 'fire', 'earth', 'water', 'warm', 'cool',
+  'reds', 'oranges', 'yellows', 'greens', 'teals', 'blues',
+  'purples', 'pinks', 'greys', 'wind', 'heart', 'sinebow',
+  'pinkgreen', 'redteal', 'orangeblue', 'yellowpurple',
+]
+
 export const WATER_YEARS = [
   2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025,
 ] as const
