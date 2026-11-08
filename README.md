@@ -239,6 +239,14 @@ A Next.js static map (`map/`) is deployed to GitHub Pages via `deploy-map.yml` o
 
 The map renders the dataset as a slippy map using [zarr-layer](https://github.com/egagli/zarr-layer) (egagli fork with MODIS sinusoidal worldFraction fix). GPU-side reprojection means the store stays in native MODIS sinusoidal — no Web Mercator reproject needed.
 
+### Shareable views
+
+The map keeps its view in the URL fragment (`map/lib/url-state.ts`), so any view can be bookmarked or sent, e.g.
+`#map=3.5/46/-115&var=SDD_DOWY&wy=2021&cmap=blues&basemap=satellite&pt=46.5,-114`.
+Keys: `map=zoom/lat/lng[/bearing/pitch]`, `var`, `wy` (water year), `cmap` and `clim=min,max` (when not the variable's default), `opacity`, `basemap`, `proj=mercator`, `pt=lat,lng` (selected point), and `grid=1&tile=h10v04` (processing-grid mode and tile). The fragment is used rather than the query string because GA4 logs a page view for every query-string `replaceState`; the same keys are still accepted in the query string and moved into the fragment on load.
+
+The **Share this view** button copies a link to the map's page on Eric's site (`https://egagli.github.io/maps/modis-snow-phenology.html` + the current fragment). When the map is embedded there, it posts `{type: "egagli-map-state", search, hash}` to the parent (origin `https://egagli.github.io`) after each URL update, so the site's address bar stays in step.
+
 ### Multiscale pyramid
 
 Before deploying the map, build the multiscale Zarr pyramid using `map/create_zarr_multiscales.ipynb`:

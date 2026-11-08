@@ -318,7 +318,9 @@ const QUERY_ROWS: { key: Variable; label: string }[] = [
 // ---------------------------------------------------------------------------
 
 const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) => {
-  const [mode, setMode] = useState<'point' | 'grid'>('point')
+  // Derived from the store so a restored #grid=1 opens on the right tab.
+  const showTiles = useStore((s) => s.showTiles)
+  const mode: 'point' | 'grid' = showTiles ? 'grid' : 'point'
   const [tileCounts, setTileCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -344,7 +346,6 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
   const southernHemisphere = (clickInfo?.lat ?? 0) < 0
 
   const handleSetMode = (m: 'point' | 'grid') => {
-    setMode(m)
     setShowTiles(m === 'grid')
   }
 
