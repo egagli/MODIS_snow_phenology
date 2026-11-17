@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { LoadingState } from '@carbonplan/zarr-layer'
+import type { SheetMode } from './sheet'
 
 export type Variable = 'SAD_DOWY' | 'SDD_DOWY' | 'max_consec_snow_days'
 export type Basemap = 'dark' | 'satellite' | 'topography'
@@ -50,6 +51,57 @@ export const ZARR_URL =
   process.env.NEXT_PUBLIC_ZARR_URL ??
   'https://uwcryo.blob.core.windows.net/snowmelt/modis_snow_phenology/modis_snow_phenology_multiscale_v2'
 
+// GMBA v2.0 mountain-range index for the search box. Shared with the
+// global_snowmelt_runoff_onset map, which builds it (prepare_gmba_overlay.py)
+// and publishes it under an immutable, suffix-versioned name; reuse it by URL
+// rather than vendoring a copy.
+export const GMBA_INDEX_URL =
+  process.env.NEXT_PUBLIC_GMBA_INDEX_URL ??
+  'https://uwcryo.blob.core.windows.net/snowmelt/snowmelt_runoff_onset/gmba_v2_standard_300_index_2.json'
+
+// One index entry.
+export type GmbaInfo = {
+  id: number
+  name: string
+  path: string // 'Eurasia > Europe > Alps > Western Alps', ending at this range
+  countries: string
+  feature: string
+  level: number | null
+  area_km2: number | null
+  elev_low: number | null
+  elev_high: number | null
+  wikidata: string
+  bbox: [number, number, number, number] // [w, s, e, n]; east may exceed 180
+  center: [number, number]
+}
+
+let gmbaIndexPromise: Promise<GmbaInfo[] | null> | null = null
+
+/** Fetch the GMBA index once (memoized) and put it in the store. */
+export function loadGmbaIndex(): Promise<GmbaInfo[] | null> {
+  if (!gmbaIndexPromise) {
+    gmbaIndexPromise = fetch(GMBA_INDEX_URL)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((entries: GmbaInfo[] | null) => {
+        if (entries) useStore.getState().setGmbaIndex(entries)
+        return entries
+      })
+      .catch((e) => {
+        console.warn('GMBA index unavailable:', e)
+        gmbaIndexPromise = null // allow a retry on the next request
+        return null
+      })
+  }
+  return gmbaIndexPromise
+}
+
+// A request from the search box for the map to move: fit a bbox, or fly to a
+// point and query it. `seq` makes repeated identical requests distinct.
+export type NavTarget =
+  | { kind: 'bounds'; bbox: [number, number, number, number] }
+  | { kind: 'point'; lat: number; lng: number }
+export type NavRequest = NavTarget & { seq: number }
+
 export type ClickInfo = {
   lng: number
   lat: number
@@ -78,6 +130,12 @@ interface AppState {
   tileClickInfo: TileClickInfo | null
   activeWarning: { name: string; message: string } | null
   zoomLevel: number
+  gmbaIndex: GmbaInfo[] | null
+  navRequest: NavRequest | null
+  // Phone/tablet sheet: its layout (null = desktop) and how much of the map it
+  // covers once settled, which the map uses as camera padding.
+  sheetMode: SheetMode | null
+  sheetInset: { bottom: number; left: number }
   setVariable: (v: Variable) => void
   setWaterYearIndex: (i: number) => void
   setOpacity: (o: number) => void
@@ -92,6 +150,9 @@ interface AppState {
   setTileClickInfo: (info: TileClickInfo | null) => void
   setActiveWarning: (w: { name: string; message: string } | null) => void
   setZoomLevel: (z: number) => void
+  setGmbaIndex: (index: GmbaInfo[]) => void
+  requestNav: (r: NavTarget) => void
+  setSheet: (mode: SheetMode | null, inset: { bottom: number; left: number }) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -109,6 +170,10 @@ export const useStore = create<AppState>((set) => ({
   tileClickInfo: null,
   activeWarning: null,
   zoomLevel: 2.4,
+  gmbaIndex: null,
+  navRequest: null,
+  sheetMode: null,
+  sheetInset: { bottom: 0, left: 0 },
   setVariable: (variable) =>
     set({
       variable,
@@ -128,4 +193,16 @@ export const useStore = create<AppState>((set) => ({
   setTileClickInfo: (tileClickInfo) => set({ tileClickInfo }),
   setActiveWarning: (activeWarning) => set({ activeWarning }),
   setZoomLevel: (zoomLevel) => set({ zoomLevel }),
+  setGmbaIndex: (gmbaIndex) => set({ gmbaIndex }),
+  requestNav: (r) =>
+    set((state) => ({ navRequest: { ...r, seq: (state.navRequest?.seq ?? 0) + 1 } })),
+  setSheet: (sheetMode, sheetInset) => {
+    const cur = useStore.getState()
+    if (
+      cur.sheetMode === sheetMode &&
+      cur.sheetInset.bottom === sheetInset.bottom &&
+      cur.sheetInset.left === sheetInset.left
+    ) return
+    set({ sheetMode, sheetInset })
+  },
 }))

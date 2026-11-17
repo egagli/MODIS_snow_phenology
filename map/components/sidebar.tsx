@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, CSSProperties } from 'react'
+import React, { ReactNode, useEffect, useRef, useState, CSSProperties } from 'react'
 import { Box, Flex } from 'theme-ui'
 import { Filter, Slider, Colorbar, Input } from '@carbonplan/components'
 import { useThemedColormap } from '@carbonplan/colormaps'
@@ -11,6 +11,7 @@ import {
 } from '../lib/store'
 import { track, trackDebounced } from '../lib/analytics'
 import { buildShareUrl } from '../lib/url-state'
+import { SHEET, SHEET_MQ, useTone } from '../lib/sheet'
 
 export const SIDEBAR_WIDTH = 380
 const BG = 'rgba(22,25,30,0.96)'
@@ -31,6 +32,7 @@ const sectionLabelStyle: CSSProperties = {
 // reopens it with the current view (see lib/url-state.ts). If the clipboard is
 // unavailable, the link is shown selected in a read-only field instead.
 const ShareButton = () => {
+  const { sheet } = useTone(DIM)
   const [status, setStatus] = useState<'idle' | 'copied' | 'fallback'>('idle')
   const [url, setUrl] = useState('')
   const fieldRef = useRef<HTMLInputElement>(null)
@@ -69,13 +71,14 @@ const ShareButton = () => {
         onClick={share}
         title='Copy a link that reopens the map with this view'
         style={{
-          padding: '4px 10px',
+          padding: sheet ? '0 16px' : '4px 10px',
+          minHeight: sheet ? 44 : undefined,
           borderRadius: 4,
           border: `1px solid ${status === 'copied' ? ACCENT : BORDER}`,
           background: status === 'copied' ? ACCENT : 'transparent',
           color: status === 'copied' ? '#fff' : TEXT,
           cursor: 'pointer',
-          fontSize: 11,
+          fontSize: sheet ? 14 : 11,
           transition: 'background 0.15s, color 0.15s',
         }}
       >
@@ -96,7 +99,7 @@ const ShareButton = () => {
             color: TEXT,
             border: `1px solid ${BORDER}`,
             borderRadius: 4,
-            fontSize: 11,
+            fontSize: sheet ? 16 : 11,
             padding: '4px 6px',
             fontFamily: 'monospace',
             boxSizing: 'border-box',
@@ -113,7 +116,10 @@ const VARIABLE_LABELS: Record<Variable, string> = {
   max_consec_snow_days: 'Duration',
 }
 
-const SidebarContent = () => {
+/** The sidebar's sections. `extras` (the basemap/projection card) is placed
+ *  before About in the sheet; the desktop card ignores it. */
+const SidebarContent = ({ extras }: { extras?: ReactNode } = {}) => {
+  const { sheet, dim, fs } = useTone(DIM)
   const variable = useStore((s) => s.variable)
   const waterYearIndex = useStore((s) => s.waterYearIndex)
   const opacity = useStore((s) => s.opacity)
@@ -154,11 +160,16 @@ const SidebarContent = () => {
     }
   }
 
-  return (
-    <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 16, color: TEXT, fontSize: 13 }}>
+  const label: CSSProperties = { ...sectionLabelStyle, fontSize: fs(10), color: dim }
+  const inputSx = sheet
+    ? { fontSize: '16px', minHeight: '44px', width: '88px', textAlign: 'center' as const }
+    : {}
 
-      {/* Header */}
-      <div>
+  const about = (
+    <div key='about' style={sheet ? { borderTop: `1px solid ${BORDER}`, paddingTop: 16 } : undefined}>
+      {sheet ? (
+        <div style={label}>ABOUT</div>
+      ) : (
         <Box
           as='h1'
           sx={{
@@ -173,25 +184,37 @@ const SidebarContent = () => {
         >
           MODIS snow phenology
         </Box>
-        <div style={{ fontSize: 11, color: DIM, lineHeight: 1.6, marginBottom: 4 }}>
-          A global, 500 meter resolution snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent covering water years 2015 to 2025. Each pixel stores three annual metrics: snow appearance date [DOWY], snow disappearance date [DOWY], and longest continuous snow period [days]. Cloud gaps are filled using a bidirectional temporal interpolation method similar to Wrzesien et al. (2019), and polar-night periods are corrected before cloud-filling to prevent false no-snow classifications at high latitudes. For more information, please check out the github repo linked below.
-        </div>
-        <a
-          href='https://github.com/egagli/MODIS_snow_phenology'
-          target='_blank'
-          rel='noopener noreferrer'
-          style={{ fontSize: 11, color: ACCENT, textDecoration: 'none' }}
-        >
-          egagli/MODIS_snow_phenology ↗
-        </a>
-        <ShareButton />
+      )}
+      <div style={{ fontSize: sheet ? 13 : 11, color: dim, lineHeight: 1.6, marginBottom: 4 }}>
+        A global, 500 meter resolution snow phenology dataset derived from MODIS MOD10A2 8-day maximum snow extent covering water years 2015 to 2025. Each pixel stores three annual metrics: snow appearance date [DOWY], snow disappearance date [DOWY], and longest continuous snow period [days]. Cloud gaps are filled using a bidirectional temporal interpolation method similar to Wrzesien et al. (2019), and polar-night periods are corrected before cloud-filling to prevent false no-snow classifications at high latitudes. For more information, please check out the github repo linked below.
       </div>
+      <a
+        href='https://github.com/egagli/MODIS_snow_phenology'
+        target='_blank'
+        rel='noopener noreferrer'
+        style={{
+          fontSize: sheet ? 14 : 11,
+          color: ACCENT,
+          textDecoration: 'none',
+          ...(sheet && { display: 'flex', alignItems: 'center', minHeight: 44 }),
+        }}
+      >
+        egagli/MODIS_snow_phenology ↗
+      </a>
+      <ShareButton />
+    </div>
+  )
 
-      <div style={{ borderTop: `1px solid ${BORDER}` }} />
-
-      {/* Variable */}
-      <div>
-        <div style={sectionLabelStyle}>variable</div>
+  const variablePicker = (
+    <div key='variable'>
+      <div style={label}>variable</div>
+      <Box
+        sx={
+          sheet
+            ? { '& button': { fontSize: '13px', letterSpacing: '0.03em', minHeight: '44px', mr: '8px' } }
+            : undefined
+        }
+      >
         <Filter
           values={Object.fromEntries(
             (Object.keys(VARIABLE_LABELS) as Variable[]).map((v) => [
@@ -209,36 +232,56 @@ const SidebarContent = () => {
             }
           }}
         />
-        <div style={{ fontSize: 11, color: DIM, marginTop: 4 }}>
-          {VARIABLE_CONFIGS[variable].label} [{VARIABLE_CONFIGS[variable].units}]
-        </div>
+      </Box>
+      <div style={{ fontSize: fs(11), color: dim, marginTop: 4 }}>
+        {VARIABLE_CONFIGS[variable].label} [{VARIABLE_CONFIGS[variable].units}]
       </div>
+    </div>
+  )
 
-      {/* Water Year */}
-      <div>
-        <div style={{ ...sectionLabelStyle, marginBottom: 4 }}>
-          water year —{' '}
-          <span style={{ color: TEXT, fontWeight: 700 }}>{WATER_YEARS[waterYearIndex]}</span>
+  const pickYear = (i: number) => {
+    setWaterYearIndex(i)
+    trackDebounced('map_time_change', { water_year: WATER_YEARS[i] })
+  }
+  const waterYear = (
+    <div key='year'>
+      <div style={{ ...label, marginBottom: 4 }}>
+        water year —{' '}
+        <span style={{ color: TEXT, fontWeight: 700 }}>{WATER_YEARS[waterYearIndex]}</span>
+      </div>
+      <Slider
+        min={0}
+        max={WATER_YEARS.length - 1}
+        step={1}
+        value={waterYearIndex}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => pickYear(parseInt(e.target.value))}
+      />
+      {sheet ? (
+        // touch: a grid of year chips (the slider stays for scrubbing)
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginTop: 12 }}>
+          {WATER_YEARS.map((year, i) => (
+            <button
+              key={year}
+              onClick={() => pickYear(i)}
+              aria-pressed={i === waterYearIndex}
+              style={{
+                minHeight: 44, borderRadius: 8, cursor: 'pointer', fontFamily: 'monospace', fontSize: 14,
+                border: `1px solid ${i === waterYearIndex ? ACCENT : BORDER}`,
+                background: i === waterYearIndex ? 'rgba(29,189,143,0.15)' : 'transparent',
+                color: i === waterYearIndex ? ACCENT : TEXT,
+                fontWeight: i === waterYearIndex ? 700 : 400,
+              }}
+            >
+              {year}
+            </button>
+          ))}
         </div>
-        <Slider
-          min={0}
-          max={WATER_YEARS.length - 1}
-          step={1}
-          value={waterYearIndex}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-            const i = parseInt(e.target.value)
-            setWaterYearIndex(i)
-            trackDebounced('map_time_change', { water_year: WATER_YEARS[i] })
-          }}
-        />
+      ) : (
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
           {WATER_YEARS.map((year, i) => (
             <button
               key={year}
-              onClick={() => {
-                setWaterYearIndex(i)
-                trackDebounced('map_time_change', { water_year: year })
-              }}
+              onClick={() => pickYear(i)}
               style={{
                 background: 'none', border: 'none', padding: 0, margin: 0,
                 fontSize: 9, lineHeight: 1, cursor: 'pointer', fontFamily: 'monospace',
@@ -249,79 +292,141 @@ const SidebarContent = () => {
             </button>
           ))}
         </div>
-      </div>
+      )}
+    </div>
+  )
 
-      {/* Colormap */}
-      <div>
-        <div style={sectionLabelStyle}>colormap</div>
-        <select
-          value={colormap}
-          onChange={(e) => setColormap(e.target.value)}
-          style={{
-            width: '100%',
-            background: '#1e2128',
-            color: TEXT,
-            border: `1px solid ${BORDER}`,
-            borderRadius: 4,
-            fontSize: 12,
-            padding: '5px 8px',
-            cursor: 'pointer',
-            fontFamily: 'monospace',
-            marginBottom: 8,
-          }}
-        >
-          {COLORMAPS.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-        <Colorbar width='100%' colormap={themedColormap} horizontal />
-      </div>
+  // In the sheet the header shows the colorbar, so the colormap and range
+  // sections don't repeat it.
+  const colormapPicker = (
+    <div key='colormap'>
+      <div style={label}>colormap</div>
+      <select
+        value={colormap}
+        onChange={(e) => setColormap(e.target.value)}
+        style={{
+          width: '100%',
+          background: '#1e2128',
+          color: TEXT,
+          border: `1px solid ${BORDER}`,
+          borderRadius: 4,
+          fontSize: sheet ? 16 : 12,
+          minHeight: sheet ? 44 : undefined,
+          padding: '5px 8px',
+          cursor: 'pointer',
+          fontFamily: 'monospace',
+          marginBottom: sheet ? 0 : 8,
+        }}
+      >
+        {COLORMAPS.map((c) => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+      {!sheet && <Colorbar width='100%' colormap={themedColormap} horizontal />}
+    </div>
+  )
 
-      {/* Range */}
-      <div>
-        <div style={sectionLabelStyle}>range</div>
-        <Flex sx={{ gap: 2, alignItems: 'center' }}>
-          <Input
-            size='xs'
-            type='number'
-            value={climInputs[0]}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleClimInput(0, e.target.value)}
-            onBlur={() => commitClim(0)}
-            onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') commitClim(0) }}
-            sx={{ width: `${Math.max(2, climInputs[0].length + 2)}ch` }}
-          />
-          <Box sx={{ flex: 1 }}>
-            <Colorbar width='100%' colormap={themedColormap} horizontal />
-          </Box>
-          <Input
-            size='xs'
-            type='number'
-            value={climInputs[1]}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleClimInput(1, e.target.value)}
-            onBlur={() => commitClim(1)}
-            onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') commitClim(1) }}
-            sx={{ width: `${Math.max(2, climInputs[1].length + 2)}ch` }}
-          />
-        </Flex>
-      </div>
-
-      {/* Opacity */}
-      <div>
-        <div style={sectionLabelStyle}>opacity</div>
-        <Slider
-          min={0}
-          max={1}
-          step={0.01}
-          value={opacity}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-            setOpacity(parseFloat(e.target.value))
-          }
+  const range = (
+    <div key='range'>
+      <div style={label}>range</div>
+      <Flex sx={{ gap: 2, alignItems: 'center' }}>
+        <Input
+          size='xs'
+          type='number'
+          value={climInputs[0]}
+          aria-label='Colour range minimum'
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleClimInput(0, e.target.value)}
+          onBlur={() => commitClim(0)}
+          onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') commitClim(0) }}
+          sx={{ width: `${Math.max(2, climInputs[0].length + 2)}ch`, ...inputSx }}
         />
-      </div>
+        <Box sx={{ flex: 1 }}>
+          {!sheet && <Colorbar width='100%' colormap={themedColormap} horizontal />}
+        </Box>
+        <Input
+          size='xs'
+          type='number'
+          value={climInputs[1]}
+          aria-label='Colour range maximum'
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleClimInput(1, e.target.value)}
+          onBlur={() => commitClim(1)}
+          onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') commitClim(1) }}
+          sx={{ width: `${Math.max(2, climInputs[1].length + 2)}ch`, ...inputSx }}
+        />
+      </Flex>
+    </div>
+  )
 
+  const opacityPicker = (
+    <div key='opacity'>
+      <div style={label}>opacity</div>
+      <Slider
+        min={0}
+        max={1}
+        step={0.01}
+        value={opacity}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+          setOpacity(parseFloat(e.target.value))
+        }
+      />
+    </div>
+  )
+
+  if (sheet) {
+    // Sheet order: controls first, then the extras (basemap/projection), About last.
+    return (
+      <>
+        {variablePicker}
+        {waterYear}
+        {range}
+        {colormapPicker}
+        {opacityPicker}
+        {extras}
+        {about}
+      </>
+    )
+  }
+
+  return (
+    <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 16, color: TEXT, fontSize: 13 }}>
+      {about}
+      <div style={{ borderTop: `1px solid ${BORDER}` }} />
+      {variablePicker}
+      {waterYear}
+      {colormapPicker}
+      {range}
+      {opacityPicker}
     </div>
   )
 }
+
+/** Sheet header subtitle: active variable and water year. */
+export const SheetSubtitle = () => {
+  const variable = useStore((s) => s.variable)
+  const waterYearIndex = useStore((s) => s.waterYearIndex)
+  return <>{VARIABLE_CONFIGS[variable].label} · WY {WATER_YEARS[waterYearIndex]}</>
+}
+
+/** Sheet header legend: the active colormap with its range and units. */
+export const CompactLegend = () => {
+  const variable = useStore((s) => s.variable)
+  const clim = useStore((s) => s.clim)
+  const colormap = useStore((s) => s.colormap)
+  const themedColormap = useThemedColormap(colormap)
+  const units = VARIABLE_CONFIGS[variable].units === 'days' ? 'days' : 'DOWY'
+  const num: CSSProperties = { font: '12px/12px monospace', color: SHEET.text, whiteSpace: 'nowrap', flexShrink: 0 }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={num}>{clim[0]}</span>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Colorbar width='100%' height='12px' colormap={themedColormap} horizontal />
+      </Box>
+      <span style={num}>{clim[1]} {units}</span>
+    </div>
+  )
+}
+
+export { SidebarContent }
 
 export const Sidebar = () => {
   const setSidebarWidth = useStore((s) => s.setSidebarWidth)
@@ -331,48 +436,27 @@ export const Sidebar = () => {
     return () => setSidebarWidth(0)
   }, [setSidebarWidth])
 
+  // Desktop: floating card (overlays map, no left offset on map). Phones and
+  // tablets get SidebarContent inside the MobileSheet instead (pages/index.tsx).
   return (
-    <>
-      {/* Desktop: floating card (overlays map, no left offset on map) */}
-      <Box
-        sx={{
-          display: ['none', 'none', 'block'],
-          position: 'absolute',
-          top: 16,
-          left: 16,
-          width: SIDEBAR_WIDTH,
-          maxHeight: 'calc(100vh - 32px)',
-          bg: BG,
-          border: `1px solid ${BORDER}`,
-          borderRadius: 8,
-          backdropFilter: 'blur(6px)',
-          overflowY: 'auto',
-          zIndex: 10,
-        }}
-      >
-        <SidebarContent />
-      </Box>
-
-      {/* Mobile: bottom panel */}
-      <Box
-        sx={{
-          display: ['block', 'block', 'none'],
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: '50vh',
-          bg: 'background',
-          overflowY: 'auto',
-          zIndex: 1000,
-          px: [4, 5],
-          py: [3],
-          borderTop: '1px solid',
-          borderColor: 'muted',
-        }}
-      >
-        <SidebarContent />
-      </Box>
-    </>
+    <Box
+      sx={{
+        display: 'block',
+        [SHEET_MQ]: { display: 'none' },
+        position: 'absolute',
+        top: 16,
+        left: 16,
+        width: SIDEBAR_WIDTH,
+        maxHeight: 'calc(100vh - 32px)',
+        bg: BG,
+        border: `1px solid ${BORDER}`,
+        borderRadius: 8,
+        backdropFilter: 'blur(6px)',
+        overflowY: 'auto',
+        zIndex: 10,
+      }}
+    >
+      <SidebarContent />
+    </Box>
   )
 }

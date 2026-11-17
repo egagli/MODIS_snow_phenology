@@ -239,6 +239,24 @@ A Next.js static map (`map/`) is deployed to GitHub Pages via `deploy-map.yml` o
 
 The map renders the dataset as a slippy map using [zarr-layer](https://github.com/egagli/zarr-layer) (egagli fork with MODIS sinusoidal worldFraction fix). GPU-side reprojection means the store stays in native MODIS sinusoidal — no Web Mercator reproject needed.
 
+### Search
+
+The search box (`map/components/search.tsx`, ported from the
+[global snowmelt runoff onset map](https://github.com/egagli/global_snowmelt_runoff_onset)) takes a place name
+([Photon](https://photon.komoot.io), OpenStreetMap data), a GMBA v2.0 mountain range, or coordinates
+(`46.5, 8.0`, `46.5N 8.0E`). Places and ranges fit the map to their extent; coordinates and point-like places fly
+there and run the point query. The range list is the runoff onset map's published GMBA index
+(`GMBA_INDEX_URL` in `map/lib/store.ts`, overridable with `NEXT_PUBLIC_GMBA_INDEX_URL`).
+
+### Phones and tablets
+
+Below 1024 px wide, or on a short touch screen (landscape phone), the sidebar and floating cards are replaced by one
+bottom sheet (`map/components/mobile-sheet.tsx`, breakpoint and tokens in `map/lib/sheet.ts`): the header (title,
+layer, colorbar) is the collapsed state, and tapping or dragging it opens the sheet to half or full height with the
+point query, the data reliability notice (one line that expands), the controls and the about text. Tablets get a
+600 px floating sheet; landscape phones dock it on the left. The map is padded by the sheet so tapped points and
+search results land in view. The layout follows the shared phone spec for the maps on egagli.github.io.
+
 ### Shareable views
 
 The map keeps its view in the URL fragment (`map/lib/url-state.ts`), so any view can be bookmarked or sent, e.g.
@@ -288,7 +306,7 @@ MODIS_snow_phenology/
 ├── map/
 │   ├── create_zarr_multiscales.ipynb        Build multiscale pyramid for web map
 │   ├── generate_tiles_status_geojson.py     Generate tiles-status.geojson from Icechunk history
-│   ├── components/                          React components (map, sidebar, floating cards)
+│   ├── components/                          React components (map, sidebar, floating cards, search, mobile sheet)
 │   ├── pages/                               Next.js pages
 │   └── pixi.toml                            Separate pixi env for map Python tooling
 ├── .github/workflows/

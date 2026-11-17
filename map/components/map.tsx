@@ -18,6 +18,7 @@ import {
 } from '../lib/store'
 import { track } from '../lib/analytics'
 import { readUrlState, registerViewGetter, scheduleUrlUpdate, getPendingTile, clearPendingTile } from '../lib/url-state'
+import { SHEET, SHEET_MQ, prefersReducedMotion, type SheetMode } from '../lib/sheet'
 
 // Regions known to produce MODIS snow detection artifacts.
 // Checked against the viewport on every moveend/zoomend.
@@ -196,6 +197,47 @@ function setBasemapSymbolVisibility(map: maplibregl.Map, visible: boolean) {
   })
 }
 
+/** Camera padding for a search target: clear of the desktop sidebar and
+ *  cards; on phones/tablets the map padding already covers the sheet and
+ *  fitBounds adds this on top. */
+function viewPadding(sidebarWidth: number | null, sheetMode: SheetMode | null) {
+  return sheetMode
+    ? { top: 24, bottom: 24, left: 24, right: 24 }
+    : { top: 70, bottom: 40, left: (sidebarWidth ?? 0) + 30, right: 380 }
+}
+
+/** Map padding for the phone/tablet sheet: keep the camera's centre in the
+ *  part of the map the sheet and search pill leave visible. */
+function sheetPadding(mode: SheetMode | null, inset: { bottom: number; left: number }) {
+  if (!mode) return { top: 0, bottom: 0, left: 0, right: 0 }
+  return { top: mode === 'land' ? 0 : SHEET.searchClearance, bottom: inset.bottom, left: inset.left, right: 0 }
+}
+
+/** MapLibre opens the compact attribution on load and again whenever the
+ *  attributions change (e.g. switching basemap). On phones/tablets keep it
+ *  collapsed to the (i) unless the user just tapped it. */
+function keepAttributionCollapsed(container: HTMLElement): () => void {
+  const el = container.querySelector<HTMLElement>('.maplibregl-ctrl-attrib')
+  if (!el) return () => {}
+  let userAt = 0
+  const collapse = () => {
+    if (performance.now() - userAt < 800) return
+    if (el.classList.contains('maplibregl-compact-show')) el.classList.remove('maplibregl-compact-show')
+    if (el.hasAttribute('open')) el.removeAttribute('open')
+  }
+  const onUser = () => { userAt = performance.now() }
+  el.addEventListener('pointerdown', onUser, true)
+  el.addEventListener('keydown', onUser, true)
+  const mo = new MutationObserver(collapse)
+  mo.observe(el, { attributes: true, attributeFilter: ['class', 'open'] })
+  collapse()
+  return () => {
+    mo.disconnect()
+    el.removeEventListener('pointerdown', onUser, true)
+    el.removeEventListener('keydown', onUser, true)
+  }
+}
+
 function isValidValue(raw: unknown): raw is number {
   return typeof raw === 'number' && !isNaN(raw) && raw !== FILL_VALUE && raw >= 0
 }
@@ -206,6 +248,12 @@ export const Map = () => {
   const zarrLayersRef = useRef<Partial<Record<Variable, InstanceType<typeof ZarrLayer>>>>({})
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const lastClickRef = useRef<{ lng: number; lat: number } | null>(null)
+  // Set by the click-handler effect: place the marker and query a point.
+  const queryAtRef = useRef<((lng: number, lat: number) => void) | null>(null)
+  // A new query on phones/tablets: once the sheet has opened, make sure the
+  // point is in the visible part of the map.
+  const revealPendingRef = useRef(false)
+  const lastNavSeqRef = useRef(0)
   // Level-0 zarrita arrays opened once at mount — used for zoom-independent point queries
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const l0ArraysRef = useRef<Partial<Record<Variable, any>>>({})
@@ -321,7 +369,6 @@ export const Map = () => {
       pitch: urlView?.pitch ?? 0,
     })
 
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
     mapRef.current = map
     registerViewGetter(() => {
       const c = map.getCenter()
@@ -598,13 +645,17 @@ export const Map = () => {
       }
     })
 
-    const clickHandler = (event: maplibregl.MapMouseEvent) => {
-      if (useStore.getState().showTiles) return  // grid mode: no marker
-      const { lng, lat } = event.lngLat
+    const queryAt = (lng: number, lat: number) => {
       lastClickRef.current = { lng, lat }
       markerRef.current?.remove()
       markerRef.current = new maplibregl.Marker({ element: createPulsingMarkerElement(), anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
       requeryAllVariables({ val: false })
+    }
+    queryAtRef.current = queryAt
+    const clickHandler = (event: maplibregl.MapMouseEvent) => {
+      if (useStore.getState().showTiles) return  // grid mode: no marker
+      revealPendingRef.current = true
+      queryAt(event.lngLat.lng, event.lngLat.lat)
       track('map_point_query')
     }
     map.on('click', clickHandler)
@@ -663,6 +714,72 @@ export const Map = () => {
     if (lastClickRef.current) requeryAllVariables({ val: false })
   }, [waterYearIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Search box requests: fit a bbox, or fly to a point and query it.
+  const navRequest = useStore((s) => s.navRequest)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !isMapLoaded || !navRequest) return
+    if (navRequest.seq === lastNavSeqRef.current) return
+    lastNavSeqRef.current = navRequest.seq
+    const { sidebarWidth: sw, sheetMode: mode } = useStore.getState()
+    const duration = prefersReducedMotion() ? 0 : 2500
+    if (navRequest.kind === 'bounds') {
+      const [w, s, e, n] = navRequest.bbox
+      map.fitBounds([[w, s], [e, n]], { padding: viewPadding(sw, mode), maxZoom: 9, duration })
+    } else {
+      // no `padding` here: it would replace the sheet padding set below
+      map.flyTo({ center: [navRequest.lng, navRequest.lat], zoom: Math.max(map.getZoom(), 10), duration })
+      if (!useStore.getState().showTiles) queryAtRef.current?.(navRequest.lng, navRequest.lat)
+    }
+  }, [navRequest, isMapLoaded])
+
+  // Phones/tablets: the attribution sits bottom-right (riding above the sheet,
+  // see MobileSheet) and stays collapsed; desktop keeps it bottom-left.
+  const sheetMode = useStore((s) => s.sheetMode)
+  const sheetInset = useStore((s) => s.sheetInset)
+  const onSheet = sheetMode !== null
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const control = new maplibregl.AttributionControl({ compact: true })
+    map.addControl(control, onSheet ? 'bottom-right' : 'bottom-left')
+    const release = onSheet ? keepAttributionCollapsed(map.getContainer()) : () => {}
+    return () => {
+      release()
+      map.removeControl(control)
+    }
+  }, [onSheet])
+
+  // Pad the camera by the sheet so taps and search results land in view.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !isMapLoaded) return
+    const duration = prefersReducedMotion() ? 0 : SHEET.ms
+    const padding = sheetPadding(sheetMode, sheetInset)
+    const reveal = () => {
+      const pt = lastClickRef.current
+      if (!revealPendingRef.current || !pt || !sheetMode) return
+      revealPendingRef.current = false
+      const p = map.project([pt.lng, pt.lat])
+      const inside =
+        p.x > padding.left + 16 && p.x < map.getContainer().clientWidth - padding.right - 16 &&
+        p.y > padding.top + 16 && p.y < map.getContainer().clientHeight - padding.bottom - 16
+      if (!inside) map.easeTo({ center: [pt.lng, pt.lat], duration: prefersReducedMotion() ? 0 : 400 })
+    }
+    const apply = () => {
+      const cur = map.getPadding()
+      const same = (['top', 'bottom', 'left', 'right'] as const).every(
+        (k) => Math.abs((cur[k] ?? 0) - padding[k]) < 1
+      )
+      if (same) return reveal()
+      map.once('moveend', reveal)
+      map.easeTo({ padding, duration })
+    }
+    // never interrupt a search flight; settle once it lands
+    if (map.isMoving()) map.once('moveend', apply)
+    else apply()
+  }, [sheetMode, sheetInset, isMapLoaded])
+
   // Resize map when sidebar width changes
   useEffect(() => {
     if (mapRef.current) mapRef.current.resize()
@@ -676,16 +793,17 @@ export const Map = () => {
           position: 'absolute',
           top: 0,
           right: 0,
-          bottom: ['50vh', '50vh', 0],
+          bottom: 0, // full-bleed: phones/tablets overlay the MobileSheet
           left: 0,
         }}
       />
       <Box
         sx={{
           position: 'absolute',
-          top: ['56px', '56px', '8px'],
+          top: '8px',
           left: (sidebarWidth ?? 0) + 10,
           pointerEvents: 'none',
+          [SHEET_MQ]: { top: '68px', left: '16px' },
         }}
       >
         {loadingState.loading && <Spinner size={40} />}

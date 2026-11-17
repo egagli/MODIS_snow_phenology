@@ -1,6 +1,7 @@
 import React, { CSSProperties, useState, useEffect } from 'react'
 import { useStore, WATER_YEARS, TILES_STATUS_URL, type Variable, type Basemap } from '../lib/store'
 import { track } from '../lib/analytics'
+import { SHEET, useTone } from '../lib/sheet'
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -34,6 +35,9 @@ const cardStyle: CSSProperties = {
   width: CARD_WIDTH,
 }
 
+// Inside the phone/tablet sheet a card is a plain section (the sheet is the card).
+const sheetSectionStyle: CSSProperties = { color: TEXT, fontSize: 13 }
+
 const sectionLabelStyle: CSSProperties = {
   fontSize: 10,
   letterSpacing: '0.06em',
@@ -42,14 +46,15 @@ const sectionLabelStyle: CSSProperties = {
   fontWeight: 600,
 }
 
-function chip(active: boolean): CSSProperties {
+function chip(active: boolean, sheet = false): CSSProperties {
   return {
     flex: 1,
     padding: '5px 0',
+    minHeight: sheet ? 44 : undefined,
     borderRadius: 4,
     border: `1px solid ${active ? ACCENT : BORDER}`,
     cursor: 'pointer',
-    fontSize: 12,
+    fontSize: sheet ? 14 : 12,
     textAlign: 'center' as const,
     background: active ? ACCENT : 'transparent',
     color: active ? '#fff' : TEXT,
@@ -108,17 +113,70 @@ const OPENING_NOTICE_TEXT =
   '(e.g., Salar de Uyuni, Salar de Coipasa). Interpret snow phenology results in these regions ' +
   'with caution.'
 
-const OpeningNotice = () => {
+// One line for the phone/tablet sheet; tapping it shows the full text.
+const OPENING_NOTICE_SUMMARY =
+  'Possible false snow under persistent cloud, on turbid water and salt flats'
+
+export const OpeningNotice = ({ variant = 'modal' }: { variant?: 'modal' | 'inline' }) => {
   const [visible, setVisible] = useState(() => {
     if (typeof window === 'undefined') return false
     return !sessionStorage.getItem('data-notice-dismissed')
   })
+  const [open, setOpen] = useState(false)
 
   if (!visible) return null
 
   const dismiss = () => {
     sessionStorage.setItem('data-notice-dismissed', '1')
     setVisible(false)
+  }
+
+  if (variant === 'inline') {
+    return (
+      <div style={{
+        border: '1px solid rgba(251,191,36,0.55)', borderRadius: 12, overflow: 'hidden',
+        background: 'rgba(251,191,36,0.04)',
+      }}>
+        <button
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          style={{
+            display: 'grid', gridTemplateColumns: 'auto 1fr 24px', columnGap: 8, alignItems: 'center',
+            width: '100%', minHeight: 44, padding: '10px 12px', textAlign: 'left',
+            background: 'none', border: 'none', color: TEXT, cursor: 'pointer',
+          }}
+        >
+          <span aria-hidden style={{ gridRow: '1 / span 2', fontSize: 16 }}>⚠</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#fbbf24' }}>Data Reliability Notice</span>
+          <span aria-hidden style={{
+            gridColumn: 3, gridRow: '1 / span 2', justifySelf: 'center', width: 8, height: 8,
+            borderRight: `2px solid ${SHEET.dim}`, borderBottom: `2px solid ${SHEET.dim}`,
+            transform: open ? 'rotate(-135deg)' : 'rotate(45deg)', transition: `transform ${SHEET.ms}ms ${SHEET.ease}`,
+          }} />
+          {!open && (
+            <span style={{ gridColumn: 2, fontSize: 12, lineHeight: '16px', color: SHEET.dim }}>
+              {OPENING_NOTICE_SUMMARY}
+            </span>
+          )}
+        </button>
+        {open && (
+          <div style={{ padding: '0 12px 12px' }}>
+            <p style={{ margin: 0, lineHeight: 1.6, fontSize: 13, color: SHEET.dim }}>{OPENING_NOTICE_TEXT}</p>
+            <button
+              onClick={dismiss}
+              style={{
+                marginTop: 12, width: '100%', minHeight: 44,
+                borderRadius: 5, border: `1px solid ${ACCENT}`,
+                background: ACCENT, color: '#fff',
+                cursor: 'pointer', fontSize: 14, fontWeight: 600,
+              }}
+            >
+              I understand
+            </button>
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -184,7 +242,7 @@ const ZoomDisplay = ({ right, bottom }: { right: number; bottom: number }) => {
 // WarningToast — artifact zone notification
 // ---------------------------------------------------------------------------
 
-const WarningToast = () => {
+export const WarningToast = ({ variant = 'card' }: { variant?: 'card' | 'banner' }) => {
   const activeWarning = useStore((s) => s.activeWarning)
   const sidebarWidth  = useStore((s) => s.sidebarWidth)
   const [dismissed, setDismissed] = useState(false)
@@ -193,25 +251,28 @@ const WarningToast = () => {
 
   if (!activeWarning || dismissed) return null
 
-  const left = (sidebarWidth ?? 0) + 16
-  const right = CARD_WIDTH + 32 // leave room for the floating cards
+  const banner = variant === 'banner'
+  const left = banner ? 12 : (sidebarWidth ?? 0) + 16
+  const right = banner ? 12 : CARD_WIDTH + 32 // leave room for the floating cards
 
   return (
     <div style={{
-      position: 'absolute',
-      top: 12,
+      position: banner ? 'fixed' : 'absolute',
+      top: 64, // below the search box
       left,
       right,
       margin: '0 auto',
-      maxWidth: 520,
+      maxWidth: banner ? 576 : 520,
+      maxHeight: banner ? '30vh' : undefined,
+      overflowY: banner ? 'auto' : undefined,
       background: 'rgba(22,25,30,0.96)',
       border: '1px solid rgba(251,191,36,0.55)',
       backdropFilter: 'blur(6px)',
-      borderRadius: 8,
-      padding: '10px 14px',
+      borderRadius: banner ? 12 : 8,
+      padding: banner ? '8px 12px' : '10px 14px',
       color: TEXT,
       fontSize: 12,
-      zIndex: 20,
+      zIndex: banner ? 30 : 20,
       display: 'flex',
       gap: 10,
       alignItems: 'flex-start',
@@ -221,14 +282,16 @@ const WarningToast = () => {
         <div style={{ fontWeight: 700, color: '#fbbf24', marginBottom: 3, fontSize: 12 }}>
           {activeWarning.name}
         </div>
-        <div style={{ color: DIM, lineHeight: 1.5 }}>{activeWarning.message}</div>
+        <div style={{ color: banner ? SHEET.dim : DIM, lineHeight: 1.5 }}>{activeWarning.message}</div>
       </div>
       <button
         onClick={() => setDismissed(true)}
+        aria-label='Dismiss warning'
         style={{
-          background: 'none', border: 'none', color: DIM,
-          cursor: 'pointer', fontSize: 16, lineHeight: 1,
+          background: 'none', border: 'none', color: banner ? SHEET.dim : DIM,
+          cursor: 'pointer', fontSize: banner ? 20 : 16, lineHeight: 1,
           padding: 0, flexShrink: 0,
+          ...(banner && { minWidth: 44, minHeight: 44, margin: '-12px -12px -12px 0' }),
         }}
       >
         ×
@@ -241,7 +304,9 @@ const WarningToast = () => {
 // TopRightCard — Basemap + Projection
 // ---------------------------------------------------------------------------
 
-const TopRightCard = ({ right, top }: { right: number; top: number }) => {
+export const TopRightCard = ({ right = 0, top = 0 }: { right?: number; top?: number }) => {
+  const { sheet, dim } = useTone(DIM)
+  const labelStyle = { ...sectionLabelStyle, fontSize: sheet ? 12 : 10, color: dim }
   const globeProjection = useStore((s) => s.globeProjection)
   const basemap = useStore((s) => s.basemap)
   const setGlobeProjection = useStore((s) => s.setGlobeProjection)
@@ -254,25 +319,25 @@ const TopRightCard = ({ right, top }: { right: number; top: number }) => {
   ]
 
   return (
-    <div style={{ ...cardStyle, top, right }}>
-      <div style={sectionLabelStyle}>basemap</div>
+    <div style={sheet ? sheetSectionStyle : { ...cardStyle, top, right }}>
+      <div style={labelStyle}>basemap</div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         {BASEMAP_OPTS.map((opt) => (
           <button key={opt.value} onClick={() => {
             if (opt.value !== basemap) track('map_basemap_change', { basemap: opt.value })
             setBasemap(opt.value)
-          }} style={chip(basemap === opt.value)}>
+          }} style={chip(basemap === opt.value, sheet)}>
             {opt.label}
           </button>
         ))}
       </div>
-      <div style={sectionLabelStyle}>projection</div>
+      <div style={labelStyle}>projection</div>
       <div style={{ display: 'flex', gap: 6 }}>
         {[{ label: 'globe', value: true }, { label: 'mercator', value: false }].map((opt) => (
           <button key={String(opt.value)} onClick={() => {
             if (opt.value !== globeProjection) track('map_projection_change', { projection: opt.label })
             setGlobeProjection(opt.value)
-          }} style={chip(globeProjection === opt.value)}>
+          }} style={chip(globeProjection === opt.value, sheet)}>
             {opt.label}
           </button>
         ))}
@@ -317,7 +382,9 @@ const QUERY_ROWS: { key: Variable; label: string }[] = [
 // CombinedInspectorCard — tabs for Point Query / Processing Grid
 // ---------------------------------------------------------------------------
 
-const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) => {
+export const CombinedInspectorCard = ({ right = 0, top = 0 }: { right?: number; top?: number }) => {
+  const { sheet, dim, fs } = useTone(DIM)
+  const labelStyle = { ...sectionLabelStyle, fontSize: fs(10), color: dim }
   // Derived from the store so a restored #grid=1 opens on the right tab.
   const showTiles = useStore((s) => s.showTiles)
   const mode: 'point' | 'grid' = showTiles ? 'grid' : 'point'
@@ -350,17 +417,21 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
   }
 
   return (
-    <div style={{
+    <div style={sheet ? {
+      ...sheetSectionStyle,
+      border: `1px solid ${BORDER}`, borderRadius: 12, padding: '12px 16px',
+      background: 'rgba(255,255,255,0.03)',
+    } : {
       ...cardStyle, top, right,
       maxHeight: 'calc(100vh - 160px)',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
       {/* Mode tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexShrink: 0 }}>
-        <button onClick={() => handleSetMode('point')} style={chip(mode === 'point')}>
+        <button onClick={() => handleSetMode('point')} style={chip(mode === 'point', sheet)}>
           point query
         </button>
-        <button onClick={() => handleSetMode('grid')} style={chip(mode === 'grid')}>
+        <button onClick={() => handleSetMode('grid')} style={chip(mode === 'grid', sheet)}>
           processing grid
         </button>
       </div>
@@ -373,31 +444,31 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
           clickInfo ? (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                <span style={{ color: DIM, fontSize: 14 }}>latitude</span>
+                <span style={{ color: dim, fontSize: 14 }}>latitude</span>
                 <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{clickInfo.lat.toFixed(4)}°</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                <span style={{ color: DIM, fontSize: 14 }}>longitude</span>
+                <span style={{ color: dim, fontSize: 14 }}>longitude</span>
                 <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{clickInfo.lng.toFixed(4)}°</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                <span style={{ color: DIM, fontSize: 14 }}>water year</span>
+                <span style={{ color: dim, fontSize: 14 }}>water year</span>
                 <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{waterYear}</span>
               </div>
               <div style={{ borderTop: `1px solid ${BORDER}`, margin: '10px 0' }} />
               {clickInfo.status === 'querying' ? (
-                <div style={{ color: DIM, fontSize: 14 }}>querying…</div>
+                <div style={{ color: dim, fontSize: 14 }}>querying…</div>
               ) : (
                 QUERY_ROWS.map(({ key, label }) => (
                   <div key={key} style={{
                     display: 'flex', justifyContent: 'space-between',
                     alignItems: 'baseline', gap: 8, marginBottom: 6,
                   }}>
-                    <span style={{ color: DIM, fontSize: 14, flexShrink: 0 }}>{label}</span>
+                    <span style={{ color: dim, fontSize: 14, flexShrink: 0 }}>{label}</span>
                     <span style={{
                       fontFamily: 'monospace', fontSize: 16, fontWeight: 700,
                       textAlign: 'right',
-                      color: clickInfo.values[key] === null ? DIM : ACCENT,
+                      color: clickInfo.values[key] === null ? dim : ACCENT,
                     }}>
                       {formatValue(clickInfo.values[key], key, waterYear, southernHemisphere)}
                     </span>
@@ -406,7 +477,7 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
               )}
             </>
           ) : (
-            <div style={{ color: DIM, fontStyle: 'italic', fontSize: 14 }}>
+            <div style={{ color: dim, fontStyle: 'italic', fontSize: 14 }}>
               Click the map to query
             </div>
           )
@@ -414,13 +485,13 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
           /* ── Processing Grid ─────────────────────────────────── */
           <>
             {/* Status legend with counts */}
-            <div style={sectionLabelStyle}>status</div>
+            <div style={labelStyle}>status</div>
             {Object.entries(TILE_STATUS_META).map(([key, { label, color }]) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
                 <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
                 <span>
                   {label}
-                  <span style={{ color: DIM, fontFamily: 'monospace', fontSize: 11 }}>
+                  <span style={{ color: dim, fontFamily: 'monospace', fontSize: fs(11) }}>
                     {' '}({tileCounts[key] ?? 0})
                   </span>
                 </span>
@@ -440,9 +511,11 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
                   </div>
                   <button
                     onClick={() => setTileClickInfo(null)}
+                    aria-label='Close tile details'
                     style={{
-                      background: 'none', border: 'none', color: DIM,
-                      cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0,
+                      background: 'none', border: 'none', color: dim,
+                      cursor: 'pointer', fontSize: sheet ? 20 : 16, lineHeight: 1, padding: 0,
+                      ...(sheet && { minWidth: 44, minHeight: 44, marginRight: -12 }),
                     }}
                   >
                     ×
@@ -451,7 +524,7 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
                 <div style={{
                   display: 'inline-block', padding: '2px 8px', borderRadius: 4, marginBottom: 10,
                   background: TILE_STATUS_META[tileClickInfo.processing_status]?.color ?? TILE_STATUS_META.skip.color,
-                  color: '#fff', fontSize: 11, fontWeight: 600,
+                  color: '#fff', fontSize: fs(11), fontWeight: 600,
                 }}>
                   {TILE_STATUS_META[tileClickInfo.processing_status]?.label ?? tileClickInfo.processing_status}
                 </div>
@@ -461,7 +534,7 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
                   .filter(([k, v]) => !SKIP_KEYS.has(k) && !WY_STAT_RE.test(k) && v !== null && v !== undefined)
                   .map(([k, v]) => (
                     <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ color: DIM }}>{propLabel(k)}</span>
+                      <span style={{ color: dim }}>{propLabel(k)}</span>
                       <span style={{ fontFamily: 'monospace' }}>{formatPropValue(v)}</span>
                     </div>
                   ))}
@@ -472,10 +545,10 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
                   if (rows.length === 0) return null
                   return (
                     <div style={{ marginTop: 8 }}>
-                      <div style={sectionLabelStyle}>per-year stats</div>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'monospace' }}>
+                      <div style={labelStyle}>per-year stats</div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: fs(11), fontFamily: 'monospace' }}>
                         <thead>
-                          <tr style={{ color: DIM }}>
+                          <tr style={{ color: dim }}>
                             <th style={{ textAlign: 'left',  paddingBottom: 3, fontWeight: 400 }}>WY</th>
                             <th style={{ textAlign: 'right', paddingBottom: 3, fontWeight: 400 }}>input scenes</th>
                             <th style={{ textAlign: 'right', paddingBottom: 3, fontWeight: 400 }}>coverage %</th>
@@ -506,7 +579,8 @@ const CombinedInspectorCard = ({ right, top }: { right: number; top: number }) =
 }
 
 // ---------------------------------------------------------------------------
-// FloatingCards — always rendered (desktop only via parent Box in index.tsx)
+// FloatingCards — desktop only (hidden by the parent Box in index.tsx on
+// phones/tablets, where the same cards render inside the MobileSheet)
 // ---------------------------------------------------------------------------
 
 export const FloatingCards = () => {
